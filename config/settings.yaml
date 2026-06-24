@@ -1,0 +1,68 @@
+# pdfscan global configuration. Per-site config lives in the database (site.config_json).
+# Precedence: CLI flag > env (PDFSCAN_*) > this file > built-in defaults.
+
+database:
+  path: ./data/pdfscan.db
+  wal: true
+  busy_timeout_ms: 30000
+
+paths:
+  temp_dir: ./.scratch          # downloads-in-progress, resume progress files
+  export_dir: ./exports
+  verapdf_dir: ./vendor/verapdf  # where the bundled veraPDF is installed/located
+
+# Default crawl behavior (overridable per-site and per-run)
+crawl:
+  default_scope: host           # host | subdomain | domain | path
+  include_external_pdfs: false  # capture PDFs hosted off the site's host
+  max_depth: 0                  # 0 = unlimited
+
+scrapy:
+  user_agent: "pdfscan/0.1 (+https://github.com/sfbrn/pdfscan)"
+  obey_robots: false            # default OFF; crawl politely instead
+  download_delay: 0.5
+  concurrent_requests: 16
+  concurrent_requests_per_domain: 4
+  autothrottle:
+    enabled: true
+    start_delay: 5
+    max_delay: 60
+    target_concurrency: 1.0
+  playwright:
+    enabled_default: false      # per-site render_js toggles this per request
+    browser: chromium
+    headless: true
+    wait_until: networkidle
+    timeout_ms: 30000
+
+verapdf:
+  # Downloaded + headlessly installed by `pdfscan setup-verapdf` if not already present.
+  # The installer zip currently published at installer_url bundles veraPDF 1.30.2.
+  version: "1.30.2"
+  installer_url: "https://software.verapdf.org/releases/verapdf-installer.zip"
+  flavour: ua1
+  timeout: 300
+  # command: ""  # explicit veraPDF path override (else auto-detected under verapdf_dir)
+
+download:
+  timeout: 30
+  ssl_insecure_retry: true      # retry with verify=False on SSLError
+  max_bytes: 524288000          # 500 MB cap; larger PDFs are logged as failures
+
+storage:
+  root: ./remediation
+  # Template tokens: {root} {site} {path} {filename} {hash} {date}
+  template: "{root}/{site}/{path}/{filename}"
+
+resolvers:
+  enabled:
+    - box
+
+archive:
+  keywords: [archive, archived, legacy, deprecated, obsolete, historical, outdated, past-events]
+  path_segments: ["/old/", "/archive/", "/archived/", "/legacy/", "/backup/", "/previous/"]
+  filename_prefixes: [archived_, old_, legacy_, deprecated_]
+  filename_suffixes: [_archived, _old, _legacy, _deprecated]
+
+logging:
+  level: INFO

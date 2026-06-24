@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Virtual env
+.venv/
+venv/
+
+# pdfscan runtime data
+data/
+*.db
+*.db-wal
+*.db-shm
+.scratch/
+exports/
+remediation/
+
+# Bundled veraPDF (downloaded at runtime)
+vendor/verapdf/
+.verapdf/
+
+# Env / secrets
+.env
+
+# OS
+Thumbs.db
+.DS_Store

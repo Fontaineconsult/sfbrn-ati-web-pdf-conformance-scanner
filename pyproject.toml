@@ -1,0 +1,70 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "sfbrn-pdf-scanner"
+version = "0.1.0"
+description = "Generalized website PDF crawler with veraPDF (PDF/UA) accessibility verification"
+readme = "README.md"
+requires-python = ">=3.12"
+authors = [{ name = "SFBRN" }]
+license = { text = "MIT" }
+keywords = ["pdf", "accessibility", "verapdf", "scrapy", "crawler", "pdf-ua"]
+
+dependencies = [
+    "scrapy>=2.16",
+    "scrapy-playwright>=0.0.47",
+    "playwright>=1.60",
+    "beautifulsoup4>=4.13",
+    "lxml>=6.1",
+    "requests>=2.34",
+    "pikepdf>=10",
+    "pdfminer.six>=20250506",
+    "openpyxl>=3.1",
+    "PyYAML>=6.0",
+    "python-dotenv>=1.0",
+    "typer>=0.26",
+    "tldextract>=5.3",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8",
+    "pytest-cov",
+    "ruff",
+    "mypy",
+    "types-requests",
+    "types-PyYAML",
+]
+# Installed only when building the Claude Desktop MCP server (M8)
+mcp = ["mcp>=1.2"]
+
+[project.scripts]
+pdfscan = "pdfscan.cli.app:app"
+pdfscan-mcp = "pdfscan.mcp.server:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/pdfscan"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "-ra"
+
+[tool.ruff]
+line-length = 100
+src = ["src", "tests"]
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "W"]
+# B008: Typer requires typer.Option()/Argument() calls in parameter defaults.
+ignore = ["E501", "B008"]
+
+[tool.mypy]
+python_version = "3.12"
+packages = ["pdfscan"]
+mypy_path = "src"
+ignore_missing_imports = true
+warn_unused_ignores = false

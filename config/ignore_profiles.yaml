@@ -1,0 +1,33 @@
+# veraPDF PDF/UA (UA-1) rule handling.
+#
+# ignore: clauses/testNumbers that are known "Acrobat-safe" and should NOT be
+#         counted as violations (ported from the original pdf_priority.py map;
+#         extend as needed).
+# immediate_failures: clause/testNumber -> a special flag set on the report.
+#         "tagged"     -> document is not tagged
+#         "image_only" -> document is likely image-only (needs OCR)
+
+ignore:
+  "5": ["1", "2"]
+  "7.1": ["4", "6", "7"]
+  "7.2": ["3", "10", "15", "16", "19", "26", "27", "28", "36", "37", "38", "39", "40", "41", "42", "43"]
+  "7.9": ["1"]
+  "7.10": ["2"]
+  "7.15": ["1"]
+  "7.18.1": ["1"]
+  "7.18.2": ["1"]
+  "7.18.3": ["1"]
+  "7.18.4": ["2"]
+  "7.18.6.2": ["1"]
+  "7.18.8": ["1"]
+  "7.20": ["1"]
+  "7.21.3.1": ["1"]
+  "7.21.3.2": ["1"]
+  "7.21.3.3": ["1"]
+  "7.21.4.1": ["2"]
+  "7.21.4.2": ["1", "2"]
+
+immediate_failures:
+  "7.1":
+    "11": tagged
+    "3": image_only
