@@ -8,18 +8,37 @@ from urllib.parse import urlsplit
 
 import typer
 
+from pdfscan.classify import Label, classify_rows
 from pdfscan.config import Settings
 from pdfscan.db import session
 from pdfscan.db.repositories import (
     FailureRepository,
     PdfRepository,
     ReportRepository,
+    SiteOwnerRepository,
     SiteRepository,
 )
 
 
 def _settings(ctx: typer.Context) -> Settings:
     return ctx.obj
+
+
+def _load_policies(settings: Settings):
+    """Resolve the ignore + classification policies (both tolerate a missing file)."""
+    from pdfscan.config import load_classification_profile, load_ignore_profiles
+
+    ignore = load_ignore_profiles(
+        settings.resolve_path(
+            settings.get("verapdf.ignore_profiles") or "config/ignore_profiles.yaml"
+        )
+    )
+    profile = load_classification_profile(
+        settings.resolve_path(
+            settings.get("classification.profile") or "config/classification.yaml"
+        )
+    )
+    return ignore, profile
 
 
 # -- pure helpers (filtering/sorting over export_rows() dicts) -----------------
@@ -43,6 +62,9 @@ class StatusFilter(StrEnum):
     offsite = "offsite"
     archived = "archived"
     broken = "broken"  # pdf or parent 404
+    good_to_go = "good_to_go"  # remediation triage class
+    auto = "auto"  # fit_for_automated_tagging
+    manual = "manual"  # needs_manual_remediation
 
 
 class StatusSort(StrEnum):
@@ -58,6 +80,10 @@ _FILTERS: dict[StatusFilter, Callable[[dict], bool]] = {
     StatusFilter.offsite: lambda r: bool(r["offsite"]),
     StatusFilter.archived: lambda r: bool(r["archived"]),
     StatusFilter.broken: lambda r: bool(r["pdf_404"] or r["parent_404"]),
+    # Remediation-class filters read the _class attached by classify (see status()).
+    StatusFilter.good_to_go: lambda r: r.get("_class") == Label.good_to_go,
+    StatusFilter.auto: lambda r: r.get("_class") == Label.fit_for_automated_tagging,
+    StatusFilter.manual: lambda r: r.get("_class") == Label.needs_manual_remediation,
 }
 
 
@@ -126,6 +152,18 @@ def _text_type_cell(text_type: str | None, image_only: bool) -> str:
     return text_type
 
 
+def _class_cell(label: object) -> str:
+    """Compact, coloured remediation-class badge for the table's ``Class`` column."""
+    s = str(label) if label is not None else ""
+    if s == Label.good_to_go:
+        return "[green]GO[/]"
+    if s == Label.fit_for_automated_tagging:
+        return "[cyan]AUTO[/]"
+    if s == Label.needs_manual_remediation:
+        return "[red]MANUAL[/]"
+    return "[dim]-[/]"  # pending / not classified
+
+
 def _verify_cells(r: dict) -> list[str]:
     """Verify-side columns: tag, img-only, violations, failed, text, pages, title, lang, form."""
     if not _is_verified(r):
@@ -168,6 +206,7 @@ def _render_table(
     table.add_column("PDF", overflow="ellipsis", no_wrap=True, max_width=58)
     table.add_column("Crawl")
     table.add_column("Verify")
+    table.add_column("Class", justify="center")
     table.add_column("Tag", justify="center")
     table.add_column("Img", justify="center")
     table.add_column("Viol", justify="right")
@@ -185,6 +224,7 @@ def _render_table(
             _deschemed(r["pdf_url"]),
             _crawl_flags(r),
             verify,
+            _class_cell(r.get("_class")),
             *_verify_cells(r),
         )
 
@@ -195,6 +235,8 @@ def _render_table(
     console.print(table)
     console.print(
         "[dim]Legend: Crawl badges = offsite/via:<resolver>/archived/404/p404. "
+        "Class = remediation triage ([green]GO[/]=good to go / [cyan]AUTO[/]=fit for "
+        "automated tagging / [red]MANUAL[/]=needs manual). "
         "Tag/Ttl/Lng = tagged/title/language present (Y=good). "
         "Img = image-only per veraPDF (authoritative). "
         "Text = pdfminer content type (diagnostic; '?' = disagrees with Img). "
@@ -202,7 +244,13 @@ def _render_table(
     )
 
 
-def _print_summary(name: str, rows: list[dict], n_fail: int) -> None:
+def _print_summary(
+    name: str,
+    rows: list[dict],
+    n_fail: int,
+    owner: str | None = None,
+    responsible: list[dict] | None = None,
+) -> None:
     total = len(rows)
     verified = [r for r in rows if _is_verified(r)]
     untagged = sum(1 for r in verified if not r["tagged"])
@@ -220,6 +268,17 @@ def _print_summary(name: str, rows: list[dict], n_fail: int) -> None:
     typer.echo(f"    image-only    : {image_only}")
     typer.echo(f"    with violations: {with_viol}")
     typer.echo(f"    likely passing: {clean}")
+    go = sum(1 for r in rows if r.get("_class") == Label.good_to_go)
+    auto = sum(1 for r in rows if r.get("_class") == Label.fit_for_automated_tagging)
+    manual = sum(1 for r in rows if r.get("_class") == Label.needs_manual_remediation)
+    typer.echo("  remediation triage:")
+    typer.echo(f"    good to go    : {go}")
+    typer.echo(f"    auto-taggable : {auto}")
+    typer.echo(f"    needs manual  : {manual}")
+    typer.echo(f"  owner           : {owner or '-'}")
+    if responsible:
+        names = ", ".join(f"{p['name']}{'*' if p['is_manager'] else ''}" for p in responsible)
+        typer.echo(f"  responsible     : {names}")
     typer.echo(f"  failures        : {n_fail}")
 
 
@@ -241,6 +300,7 @@ def status(
 ) -> None:
     """Show a coverage/accessibility summary (default) or a per-PDF table (--table)."""
     settings = _settings(ctx)
+    ignore, profile = _load_policies(settings)
     with session(settings.db_path) as conn:
         site = SiteRepository(conn).get_by_name(name)
         if not site:
@@ -248,11 +308,21 @@ def status(
             raise typer.Exit(code=1)
         rows = PdfRepository(conn).export_rows(site.id)
         n_fail = FailureRepository(conn).count_by_site(site.id)
+        cls = classify_rows(conn, rows, ignore, profile)
+        owner = SiteOwnerRepository(conn).get_by_id(site.owner_id) if site.owner_id else None
+        responsible = [
+            {"name": p.full_name, "is_manager": p.is_manager}
+            for p in SiteRepository(conn).responsible_people(site.id)
+        ]
+    for r in rows:
+        c = cls[r["pdf_url"]]
+        r["_class"] = c.label
+        r["_reason"] = c.reason
 
     if table:
         _render_table(rows, name, filter_=filter_, sort=sort, limit=limit)
     else:
-        _print_summary(name, rows, n_fail)
+        _print_summary(name, rows, n_fail, owner.key if owner else None, responsible)
 
 
 def rules(

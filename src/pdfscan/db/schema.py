@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import sqlite3
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 4
 
 DDL = """
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -17,7 +17,11 @@ CREATE TABLE IF NOT EXISTS site (
     config_json TEXT NOT NULL,
     enabled     INTEGER NOT NULL DEFAULT 1,
     notes       TEXT,
-    created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    -- v4: org-level owner (responsible group). Fresh DBs get this column with the
+    -- FK action here; existing DBs get it via the ALTER in migrations.py. Forward
+    -- FK reference to site_owner is fine (SQLite resolves FK targets at run time).
+    owner_id    INTEGER REFERENCES site_owner(id) ON DELETE SET NULL
 );
 
 CREATE TABLE IF NOT EXISTS pdf_files (
@@ -52,6 +56,7 @@ CREATE TABLE IF NOT EXISTS pdf_report (
     language_set  INTEGER NOT NULL DEFAULT 0,
     page_count    INTEGER,
     has_form      INTEGER NOT NULL DEFAULT 0,
+    complex_graphic INTEGER NOT NULL DEFAULT 0,
     created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -80,6 +85,38 @@ CREATE TABLE IF NOT EXISTS failure (
     FOREIGN KEY (site_id) REFERENCES site(id) ON DELETE SET NULL,
     FOREIGN KEY (pdf_id) REFERENCES pdf_files(id) ON DELETE SET NULL
 );
+
+-- v4: site ownership / responsible people. A site_owner is an org-level group
+-- (e.g. a content-manager security group); a site references one owner; people
+-- belong to owners many-to-many via person_owner. "Responsible people for a
+-- site" = the members of that site's owner.
+CREATE TABLE IF NOT EXISTS site_owner (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    key         TEXT NOT NULL UNIQUE,
+    label       TEXT,
+    notes       TEXT,
+    created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS person (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    employee_id TEXT NOT NULL UNIQUE,
+    full_name   TEXT NOT NULL,
+    email       TEXT,
+    is_manager  INTEGER NOT NULL DEFAULT 0,
+    created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS person_owner (
+    id        INTEGER PRIMARY KEY AUTOINCREMENT,
+    person_id INTEGER NOT NULL,
+    owner_id  INTEGER NOT NULL,
+    FOREIGN KEY (person_id) REFERENCES person(id) ON DELETE CASCADE,
+    FOREIGN KEY (owner_id) REFERENCES site_owner(id) ON DELETE CASCADE,
+    UNIQUE (person_id, owner_id)
+);
+CREATE INDEX IF NOT EXISTS ix_person_owner_owner ON person_owner(owner_id);
+CREATE INDEX IF NOT EXISTS ix_person_owner_person ON person_owner(person_id);
 """
 
 

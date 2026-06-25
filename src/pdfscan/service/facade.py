@@ -7,14 +7,21 @@ regardless of how pdfscan is driven.
 
 from __future__ import annotations
 
+import dataclasses
 from pathlib import Path
 from typing import Any
 
 from pdfscan.config import Settings, load_ignore_profiles, load_settings
 from pdfscan.db import session
-from pdfscan.db.repositories import FailureRepository, PdfRepository, SiteRepository
+from pdfscan.db.repositories import (
+    FailureRepository,
+    PdfRepository,
+    PersonRepository,
+    SiteOwnerRepository,
+    SiteRepository,
+)
 from pdfscan.exporters import collect_rows, export_csv, export_excel, export_json
-from pdfscan.models import Site, SiteConfig
+from pdfscan.models import Person, Site, SiteConfig, SiteOwner
 from pdfscan.pipeline.archive import apply_archive_flags, explain, rules_from_settings
 from pdfscan.utils.urls import ensure_scheme, host_of
 
@@ -116,6 +123,14 @@ class ScannerService:
         )
         return load_ignore_profiles(path)
 
+    def _classification_profile(self):
+        from pdfscan.config import load_classification_profile
+
+        path = self.settings.resolve_path(
+            self.settings.get("classification.profile") or "config/classification.yaml"
+        )
+        return load_classification_profile(path)
+
     def verify(
         self, name: str, *, limit: int | None = None, save: bool = True, refresh: bool = False
     ) -> dict[str, int]:
@@ -158,13 +173,27 @@ class ScannerService:
             return refresh_404(conn, site.id, self.settings)
 
     def status(self, name: str) -> dict[str, Any]:
+        from pdfscan.classify import Label, classify_rows
+
+        ignore = self._ignore_profiles()
+        profile = self._classification_profile()
         with session(self.settings.db_path) as conn:
             site = SiteRepository(conn).get_by_name(name)
             if not site:
                 raise ScannerError(f"No such site '{name}'")
             rows = PdfRepository(conn).export_rows(site.id)
             n_fail = FailureRepository(conn).count_by_site(site.id)
+            cls = classify_rows(conn, rows, ignore, profile)
+            owner = SiteOwnerRepository(conn).get_by_id(site.owner_id) if site.owner_id else None
+            responsible = [
+                {"name": p.full_name, "email": p.email, "is_manager": p.is_manager}
+                for p in SiteRepository(conn).responsible_people(site.id)
+            ]
         verified = [r for r in rows if r["violations"] is not None]
+
+        def _count(label: Label) -> int:
+            return sum(1 for r in rows if cls[r["pdf_url"]].label is label)
+
         return {
             "site": name,
             "discovered": len(rows),
@@ -176,8 +205,191 @@ class ScannerService:
             "image_only": sum(1 for r in verified if r["image_only"]),
             "with_violations": sum(1 for r in verified if (r["violations"] or 0) > 0),
             "likely_passing": sum(1 for r in verified if (r["violations"] or 0) == 0 and r["tagged"]),
+            "good_to_go": _count(Label.good_to_go),
+            "fit_for_automated_tagging": _count(Label.fit_for_automated_tagging),
+            "needs_manual_remediation": _count(Label.needs_manual_remediation),
+            "owner": owner.key if owner else None,
+            "owner_label": owner.label if owner else None,
+            "responsible": responsible,
             "failures": n_fail,
         }
+
+    # -- ownership (site owners + responsible people) ---------------------------
+    def add_owner(self, key: str, *, label: str | None = None, notes: str | None = None) -> int:
+        with session(self.settings.db_path) as conn:
+            return SiteOwnerRepository(conn).upsert(
+                SiteOwner(id=None, key=key, label=label, notes=notes)
+            )
+
+    def list_owners(self) -> list[dict]:
+        with session(self.settings.db_path) as conn:
+            owners = SiteOwnerRepository(conn)
+            people = PersonRepository(conn)
+            return [
+                {
+                    "key": o.key,
+                    "label": o.label,
+                    "members": len(people.members_of(o.id)),
+                    "sites": len(owners.site_names(o.id)),
+                }
+                for o in owners.list()
+            ]
+
+    def show_owner(self, key: str) -> dict | None:
+        with session(self.settings.db_path) as conn:
+            owners = SiteOwnerRepository(conn)
+            owner = owners.get_by_key(key)
+            if not owner:
+                return None
+            members = PersonRepository(conn).members_of(owner.id)
+            return {
+                "key": owner.key,
+                "label": owner.label,
+                "notes": owner.notes,
+                "sites": owners.site_names(owner.id),
+                "members": [
+                    {
+                        "employee_id": p.employee_id,
+                        "name": p.full_name,
+                        "email": p.email,
+                        "is_manager": p.is_manager,
+                    }
+                    for p in members
+                ],
+            }
+
+    def remove_owner(self, key: str) -> bool:
+        with session(self.settings.db_path) as conn:
+            return SiteOwnerRepository(conn).remove(key)
+
+    def add_person(
+        self, employee_id: str, full_name: str, *, email: str | None = None, is_manager: bool = False
+    ) -> int:
+        with session(self.settings.db_path) as conn:
+            return PersonRepository(conn).upsert(
+                Person(
+                    id=None,
+                    employee_id=employee_id,
+                    full_name=full_name,
+                    email=email,
+                    is_manager=is_manager,
+                )
+            )
+
+    def list_people(self) -> list[dict]:
+        with session(self.settings.db_path) as conn:
+            return [
+                {
+                    "employee_id": p.employee_id,
+                    "name": p.full_name,
+                    "email": p.email,
+                    "is_manager": p.is_manager,
+                }
+                for p in PersonRepository(conn).list()
+            ]
+
+    def remove_person(self, employee_id: str) -> bool:
+        with session(self.settings.db_path) as conn:
+            return PersonRepository(conn).remove(employee_id)
+
+    def _resolve_membership(self, conn, employee_id: str, owner_key: str) -> tuple[int, int]:
+        person = PersonRepository(conn).get_by_employee_id(employee_id)
+        owner = SiteOwnerRepository(conn).get_by_key(owner_key)
+        if not person:
+            raise ScannerError(f"No such person '{employee_id}'")
+        if not owner:
+            raise ScannerError(f"No such owner '{owner_key}'")
+        return person.id, owner.id
+
+    def assign_person(self, employee_id: str, owner_key: str) -> bool:
+        with session(self.settings.db_path) as conn:
+            pid, oid = self._resolve_membership(conn, employee_id, owner_key)
+            return PersonRepository(conn).add_membership(pid, oid)
+
+    def unassign_person(self, employee_id: str, owner_key: str) -> bool:
+        with session(self.settings.db_path) as conn:
+            pid, oid = self._resolve_membership(conn, employee_id, owner_key)
+            return PersonRepository(conn).remove_membership(pid, oid)
+
+    def set_site_owner(self, site_name: str, owner_key: str | None) -> bool:
+        """Assign (or clear, with ``owner_key=None``) a site's owner org by key."""
+        with session(self.settings.db_path) as conn:
+            owner_id: int | None = None
+            if owner_key:
+                owner = SiteOwnerRepository(conn).get_by_key(owner_key)
+                if not owner:
+                    raise ScannerError(f"No such owner '{owner_key}'")
+                owner_id = owner.id
+            if not SiteRepository(conn).set_owner(site_name, owner_id):
+                raise ScannerError(f"No such site '{site_name}'")
+            return True
+
+    def whois(self, site_name: str) -> dict[str, Any]:
+        """Owner + responsible people for a site (who to contact)."""
+        with session(self.settings.db_path) as conn:
+            site = SiteRepository(conn).get_by_name(site_name)
+            if not site:
+                raise ScannerError(f"No such site '{site_name}'")
+            owner = SiteOwnerRepository(conn).get_by_id(site.owner_id) if site.owner_id else None
+            responsible = [
+                {
+                    "employee_id": p.employee_id,
+                    "name": p.full_name,
+                    "email": p.email,
+                    "is_manager": p.is_manager,
+                }
+                for p in SiteRepository(conn).responsible_people(site.id)
+            ]
+            return {
+                "site": site_name,
+                "owner": owner.key if owner else None,
+                "owner_label": owner.label if owner else None,
+                "responsible": responsible,
+            }
+
+    def import_people(
+        self, *, sites=None, employees=None, managers=None, assignments=None
+    ) -> dict[str, Any]:
+        """Bulk-load owners/people/assignments from CSULA-style CSVs (each optional)."""
+        from pdfscan.people import run_import
+
+        with session(self.settings.db_path) as conn:
+            report = run_import(
+                conn, sites=sites, employees=employees, managers=managers, assignments=assignments
+            )
+        return dataclasses.asdict(report)
+
+    # -- calibration ------------------------------------------------------------
+    def evaluate(self, path: str | Path, *, profile_path: str | None = None) -> dict[str, Any]:
+        """Score the classifier against pre-sorted PDFs under ``path``.
+
+        ``path`` holds category subfolders (good_to_go / fit_for_automated_tagging
+        / needs_manual_remediation, aliases accepted). Returns the eval report as
+        a JSON-friendly dict (accuracy, confusion matrix, per-class metrics,
+        mismatches). ``profile_path`` overrides the classification profile so a
+        candidate YAML can be scored without editing the shipped one.
+        """
+        from pdfscan.classify.evaluate import evaluate as _evaluate
+        from pdfscan.classify.evaluate import load_labeled_set
+
+        cmd = self._verapdf_cmd()
+        ignore = self._ignore_profiles()
+        if profile_path:
+            from pdfscan.config import load_classification_profile
+
+            profile = load_classification_profile(self.settings.resolve_path(profile_path))
+        else:
+            profile = self._classification_profile()
+
+        labeled = load_labeled_set(path)
+        if not labeled:
+            raise ScannerError(
+                f"no labelled PDFs under '{path}' "
+                "(expected category subfolders: good_to_go/, fit_for_automated_tagging/, "
+                "needs_manual_remediation/)"
+            )
+        report = _evaluate(labeled, self.settings, cmd, ignore, profile)
+        return report.to_dict()
 
     # -- export -----------------------------------------------------------------
     def export(

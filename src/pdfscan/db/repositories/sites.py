@@ -3,7 +3,8 @@ from __future__ import annotations
 import sqlite3
 
 from pdfscan.db.repositories.base import BaseRepository
-from pdfscan.models import Site, SiteConfig
+from pdfscan.db.repositories.owners import _row_to_person
+from pdfscan.models import Person, Site, SiteConfig
 
 
 def _row_to_site(row: sqlite3.Row) -> Site:
@@ -14,6 +15,7 @@ def _row_to_site(row: sqlite3.Row) -> Site:
         enabled=bool(row["enabled"]),
         notes=row["notes"],
         created_at=row["created_at"],
+        owner_id=row["owner_id"],
     )
 
 
@@ -59,3 +61,28 @@ class SiteRepository(BaseRepository):
     def remove(self, name: str) -> bool:
         cur = self.conn.execute("DELETE FROM site WHERE name = ?", (name,))
         return cur.rowcount > 0
+
+    # -- ownership (v4) ----------------------------------------------------------
+    def set_owner(self, site_name: str, owner_id: int | None) -> bool:
+        """Set (or clear, with ``None``) the owner org for a site by name."""
+        cur = self.conn.execute(
+            "UPDATE site SET owner_id = ? WHERE name = ?", (owner_id, site_name)
+        )
+        return cur.rowcount > 0
+
+    def responsible_people(self, site_id: int) -> list[Person]:
+        """People responsible for a site = members of the site's owner org.
+
+        Managers sort first. Empty when the site has no owner or no members.
+        """
+        rows = self.conn.execute(
+            """
+            SELECT p.* FROM person p
+            JOIN person_owner po ON po.person_id = p.id
+            JOIN site s          ON s.owner_id   = po.owner_id
+            WHERE s.id = ?
+            ORDER BY p.is_manager DESC, p.full_name
+            """,
+            (site_id,),
+        ).fetchall()
+        return [_row_to_person(r) for r in rows]

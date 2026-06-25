@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+from pdfscan.classify import Label
 from pdfscan.cli.status import (
     StatusFilter,
     StatusSort,
     _apply_filter,
+    _class_cell,
     _deschemed,
     _has_issue,
     _is_verified,
@@ -107,6 +109,33 @@ def test_sort_by_url_is_lexicographic():
         "https://x/a.pdf",
         "https://x/b.pdf",
     ]
+
+
+# --- remediation class cell + filters -----------------------------------------
+def test_class_cell_per_label():
+    assert "GO" in _class_cell(Label.good_to_go)
+    assert "AUTO" in _class_cell(Label.fit_for_automated_tagging)
+    assert "MANUAL" in _class_cell(Label.needs_manual_remediation)
+    assert _class_cell(Label.pending) == "[dim]-[/]"
+    assert _class_cell(None) == "[dim]-[/]"
+
+
+def test_class_filters_select_by_attached_class():
+    rows = [
+        _verified("https://x/go.pdf"),
+        _verified("https://x/auto.pdf"),
+        _verified("https://x/man.pdf"),
+    ]
+    rows[0]["_class"] = Label.good_to_go
+    rows[1]["_class"] = Label.fit_for_automated_tagging
+    rows[2]["_class"] = Label.needs_manual_remediation
+
+    def urls(key):
+        return {r["pdf_url"] for r in _apply_filter(rows, key)}
+
+    assert urls(StatusFilter.good_to_go) == {"https://x/go.pdf"}
+    assert urls(StatusFilter.auto) == {"https://x/auto.pdf"}
+    assert urls(StatusFilter.manual) == {"https://x/man.pdf"}
 
 
 # --- display helper -----------------------------------------------------------

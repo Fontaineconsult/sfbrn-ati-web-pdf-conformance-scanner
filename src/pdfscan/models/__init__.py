@@ -1,6 +1,7 @@
 """Domain models (plain dataclasses) shared across all layers."""
 
 from pdfscan.models.failure import Failure
+from pdfscan.models.owner import Person, SiteOwner
 from pdfscan.models.pdf import DiscoveredPdf, PdfFile
 from pdfscan.models.report import PdfReport, ReportRule
 from pdfscan.models.site import Site, SiteConfig
@@ -13,4 +14,6 @@ __all__ = [
     "PdfReport",
     "ReportRule",
     "Failure",
+    "SiteOwner",
+    "Person",
 ]

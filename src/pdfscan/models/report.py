@@ -23,6 +23,7 @@ class PdfReport:
     language_set: bool = False
     page_count: int | None = None
     has_form: bool = False
+    complex_graphic: bool = False
     id: int | None = None
     created_at: str | None = None
 

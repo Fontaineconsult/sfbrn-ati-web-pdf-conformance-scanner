@@ -19,6 +19,7 @@ def _row_to_report(row: sqlite3.Row) -> PdfReport:
         language_set=bool(row["language_set"]),
         page_count=row["page_count"],
         has_form=bool(row["has_form"]),
+        complex_graphic=bool(row["complex_graphic"]),
         created_at=row["created_at"],
     )
 
@@ -36,7 +37,8 @@ class ReportRepository(BaseRepository):
                 title_set = excluded.title_set,
                 language_set = excluded.language_set,
                 page_count = excluded.page_count,
-                has_form = excluded.has_form
+                has_form = excluded.has_form,
+                complex_graphic = excluded.complex_graphic
             """
             if overwrite
             else "ON CONFLICT(pdf_hash) DO NOTHING"
@@ -45,8 +47,9 @@ class ReportRepository(BaseRepository):
             f"""
             INSERT INTO pdf_report (
                 pdf_hash, violations, failed_checks, tagged, image_only,
-                text_type, title_set, language_set, page_count, has_form
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                text_type, title_set, language_set, page_count, has_form,
+                complex_graphic
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             {conflict}
             """,
             (
@@ -60,6 +63,7 @@ class ReportRepository(BaseRepository):
                 int(report.language_set),
                 report.page_count,
                 int(report.has_form),
+                int(report.complex_graphic),
             ),
         )
         if cur.lastrowid:

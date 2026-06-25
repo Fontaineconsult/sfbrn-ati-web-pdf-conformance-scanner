@@ -24,6 +24,15 @@ _MAX_PAGES_FOR_TEXT_ANALYSIS = 25
 _FULL_PAGE_AREA_LOW = 0.9
 _FULL_PAGE_AREA_HIGH = 1.1
 
+# "Complex graphic" heuristic: an image whose area is a substantial-but-not-
+# full-page fraction of the page (excludes tiny icons and the full-page
+# image-of-text already covered by image_only) that a text block sits on top of
+# / inside -- e.g. a chart or infographic with embedded labels. Such figures
+# need meaningful alt text and resist automated tagging. Tunable.
+_COMPLEX_GRAPHIC_MIN_IMAGE_FRAC = 0.05
+_COMPLEX_GRAPHIC_MAX_IMAGE_FRAC = 0.9
+_COMPLEX_GRAPHIC_TEXT_OVERLAP_FRAC = 0.5
+
 
 @dataclass(frozen=True)
 class PdfAnalysis:
@@ -40,6 +49,10 @@ class PdfAnalysis:
         title_set: A non-empty document title is present (docinfo or XMP).
         language_set: The catalog declares a non-empty ``/Lang``.
         page_count: Number of pages, or ``None`` if it could not be read.
+        complex_graphic: A substantial image overlaps a text block on some
+            sampled page (a chart/infographic with embedded labels). A heuristic
+            "needs manual remediation" hint; may false-positive on watermarks or
+            banner text.
     """
 
     tagged: bool
@@ -48,6 +61,7 @@ class PdfAnalysis:
     title_set: bool
     language_set: bool
     page_count: int | None
+    complex_graphic: bool = False
 
 
 def analyze_pdf(pdf_path: str | Path) -> PdfAnalysis | None:
@@ -71,9 +85,9 @@ def analyze_pdf(pdf_path: str | Path) -> PdfAnalysis | None:
     finally:
         pdf.close()
 
-    # Text-type analysis is a separate (best-effort) pdfminer pass. Failures
-    # here should not invalidate the structural results already gathered.
-    text_type = _pdf_text_type(pdf_path)
+    # Text-type + complex-graphic analysis is a separate (best-effort) pdfminer
+    # pass. Failures here should not invalidate the structural results above.
+    text_type, complex_graphic = _analyze_pages(pdf_path)
 
     return PdfAnalysis(
         tagged=tagged,
@@ -82,6 +96,7 @@ def analyze_pdf(pdf_path: str | Path) -> PdfAnalysis | None:
         title_set=title_set,
         language_set=language_set,
         page_count=page_count,
+        complex_graphic=complex_graphic,
     )
 
 
@@ -191,25 +206,64 @@ def _image_over_text(page) -> bool:
     return False
 
 
-def _pdf_text_type(pdf_path: str | Path) -> str | None:
-    """Classify the document's text content (diagnostic heuristic only).
+def _overlap_fraction(
+    text_bbox: tuple[float, float, float, float],
+    image_bbox: tuple[float, float, float, float],
+) -> float:
+    """Fraction of the text box's area that lies inside the image box (0..1)."""
+    tx0, ty0, tx1, ty1 = text_bbox
+    ix0, iy0, ix1, iy1 = image_bbox
+    w = max(0.0, min(tx1, ix1) - max(tx0, ix0))
+    h = max(0.0, min(ty1, iy1) - max(ty0, iy0))
+    text_area = (tx1 - tx0) * (ty1 - ty0)
+    return (w * h) / text_area if text_area > 0 else 0.0
 
-    This complements but does not override veraPDF: the authoritative image-only
-    verdict is veraPDF clause 7.1/3 (the report's ``image_only`` flag). This
-    pdfminer classification is retained for insight when the two disagree.
 
-    Returns:
-        ``"Hybrid"``     - full-page images *and* extractable text present.
-        ``"Text"``       - extractable text but no full-page image of text.
-        ``"Image Only"`` - full-page image(s) of text but no extractable text.
-        ``None``         - neither full-page images nor extractable text
-                           (e.g. truly blank pages).
+def _page_has_overlapping_image_text(page) -> bool:
+    """True if a substantial image figure on the page is overlapped by text.
 
-    Only the first ``_MAX_PAGES_FOR_TEXT_ANALYSIS`` pages are inspected for
-    performance; this is sufficient to classify a document's dominant type.
+    Collects images that occupy a substantial-but-not-full-page fraction of the
+    page, then returns True if any text container sits substantially on top of
+    one (``>= _COMPLEX_GRAPHIC_TEXT_OVERLAP_FRAC`` of the text box's area) --
+    the signature of a chart/infographic with embedded labels.
+    """
+    page_area = (page.x1 - page.x0) * (page.y1 - page.y0)
+    if page_area <= 0:
+        return False
+
+    image_boxes: list[tuple[float, float, float, float]] = []
+    text_boxes: list[tuple[float, float, float, float]] = []
+    for item in page:
+        if isinstance(item, LTFigure | LTImage):
+            has_image = isinstance(item, LTImage) or any(isinstance(o, LTImage) for o in item)
+            if not has_image:
+                continue
+            frac = ((item.x1 - item.x0) * (item.y1 - item.y0)) / page_area
+            if _COMPLEX_GRAPHIC_MIN_IMAGE_FRAC < frac < _COMPLEX_GRAPHIC_MAX_IMAGE_FRAC:
+                image_boxes.append((item.x0, item.y0, item.x1, item.y1))
+        elif isinstance(item, LTTextContainer):
+            text_boxes.append((item.x0, item.y0, item.x1, item.y1))
+
+    return any(
+        _overlap_fraction(t, im) >= _COMPLEX_GRAPHIC_TEXT_OVERLAP_FRAC
+        for im in image_boxes
+        for t in text_boxes
+    )
+
+
+def _analyze_pages(pdf_path: str | Path) -> tuple[str | None, bool]:
+    """Single pdfminer pass returning ``(text_type, complex_graphic)``.
+
+    ``text_type`` is a diagnostic content heuristic (NOT authoritative -- veraPDF
+    clause 7.1/3 ``image_only`` is): ``"Hybrid"`` (full-page images + text),
+    ``"Text"``, ``"Image Only"``, or ``None`` (blank). ``complex_graphic`` is
+    True if any sampled page has a substantial image overlapped by text.
+
+    Only the first ``_MAX_PAGES_FOR_TEXT_ANALYSIS`` pages are inspected.
     """
     image_pages = 0
     text_pages = 0
+    complex_graphic = False
 
     try:
         pages = high_level.extract_pages(str(pdf_path))
@@ -220,13 +274,17 @@ def _pdf_text_type(pdf_path: str | Path) -> str | None:
                 image_pages += 1
             if _page_contains_text(page):
                 text_pages += 1
+            if not complex_graphic and _page_has_overlapping_image_text(page):
+                complex_graphic = True
     except Exception:  # noqa: BLE001 - pdfminer can choke on odd PDFs
-        return None
+        return None, False
 
     if image_pages > 0 and text_pages > 0:
-        return "Hybrid"
-    if image_pages == 0 and text_pages > 0:
-        return "Text"
-    if image_pages > 0 and text_pages == 0:
-        return "Image Only"
-    return None
+        text_type = "Hybrid"
+    elif image_pages == 0 and text_pages > 0:
+        text_type = "Text"
+    elif image_pages > 0 and text_pages == 0:
+        text_type = "Image Only"
+    else:
+        text_type = None
+    return text_type, complex_graphic

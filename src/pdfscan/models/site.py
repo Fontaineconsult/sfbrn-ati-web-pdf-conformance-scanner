@@ -43,3 +43,4 @@ class Site:
     enabled: bool = True
     notes: str | None = None
     created_at: str | None = None
+    owner_id: int | None = None  # v4: FK to site_owner (org-level responsible group)

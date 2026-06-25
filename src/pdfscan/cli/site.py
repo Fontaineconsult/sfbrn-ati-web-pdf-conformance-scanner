@@ -6,7 +6,7 @@ import typer
 
 from pdfscan.config import Settings
 from pdfscan.db import session
-from pdfscan.db.repositories import PdfRepository, SiteRepository
+from pdfscan.db.repositories import PdfRepository, SiteOwnerRepository, SiteRepository
 from pdfscan.models import Site, SiteConfig
 from pdfscan.utils.urls import ensure_scheme, host_of
 
@@ -37,6 +37,7 @@ def site_add(
     ),
     path_prefix: str | None = typer.Option(None, "--path-prefix", help="For scope=path."),
     storage_template: str | None = typer.Option(None, "--storage-template"),
+    owner: str | None = typer.Option(None, "--owner", help="Owner key (responsible org group)."),
     notes: str | None = typer.Option(None, "--notes"),
 ) -> None:
     """Add or update a site."""
@@ -63,7 +64,17 @@ def site_add(
     settings = _settings(ctx)
     with session(settings.db_path) as conn:
         sid = SiteRepository(conn).upsert(Site(id=None, name=name, config=cfg, notes=notes))
-    typer.echo(f"Saved site '{name}' (id={sid}); scope={scope} depth={depth} seeds={seeds}")
+        owner_msg = ""
+        if owner:
+            o = SiteOwnerRepository(conn).get_by_key(owner)
+            if o is None:
+                owner_msg = f"; warning: no such owner '{owner}' (saved without owner)"
+            else:
+                SiteRepository(conn).set_owner(name, o.id)
+                owner_msg = f"; owner={owner}"
+    typer.echo(
+        f"Saved site '{name}' (id={sid}); scope={scope} depth={depth} seeds={seeds}{owner_msg}"
+    )
 
 
 @site_app.command("list")
@@ -88,12 +99,44 @@ def site_show(ctx: typer.Context, name: str) -> None:
     settings = _settings(ctx)
     with session(settings.db_path) as conn:
         site = SiteRepository(conn).get_by_name(name)
+        owner = (
+            SiteOwnerRepository(conn).get_by_id(site.owner_id)
+            if site and site.owner_id
+            else None
+        )
     if not site:
         raise typer.Exit(code=1)
     typer.echo(f"name: {site.name}")
     typer.echo(f"enabled: {site.enabled}")
+    typer.echo(f"owner: {owner.key if owner else '-'}")
     typer.echo(f"notes: {site.notes or ''}")
     typer.echo(f"config: {site.config.to_json()}")
+
+
+@site_app.command("set-owner")
+def site_set_owner(
+    ctx: typer.Context,
+    name: str,
+    owner_key: str = typer.Argument(None, help="Owner key to assign (omit with --clear)."),
+    clear: bool = typer.Option(False, "--clear", help="Remove the site's owner."),
+) -> None:
+    """Assign (or --clear) the owner org responsible for a site."""
+    settings = _settings(ctx)
+    if not clear and not owner_key:
+        typer.echo("Provide an owner key or --clear.")
+        raise typer.Exit(code=1)
+    with session(settings.db_path) as conn:
+        owner_id = None
+        if not clear:
+            owner = SiteOwnerRepository(conn).get_by_key(owner_key)
+            if owner is None:
+                typer.echo(f"No such owner '{owner_key}'.")
+                raise typer.Exit(code=1)
+            owner_id = owner.id
+        if not SiteRepository(conn).set_owner(name, owner_id):
+            typer.echo(f"No such site '{name}'.")
+            raise typer.Exit(code=1)
+    typer.echo(f"Set owner of '{name}' to {'(cleared)' if clear else owner_key}")
 
 
 @site_app.command("remove")

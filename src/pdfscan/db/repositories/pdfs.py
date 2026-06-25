@@ -109,9 +109,16 @@ class PdfRepository(BaseRepository):
                    f.via_resolver, f.local_path, f.archived, f.removed,
                    f.pdf_404, f.parent_404, f.file_hash,
                    r.violations, r.failed_checks, r.tagged, r.image_only,
-                   r.text_type, r.title_set, r.language_set, r.page_count, r.has_form
+                   r.text_type, r.title_set, r.language_set, r.page_count, r.has_form,
+                   r.complex_graphic,
+                   o.key AS owner,
+                   (SELECT group_concat(p.email, '; ')
+                      FROM person p
+                      JOIN person_owner po ON po.person_id = p.id
+                     WHERE po.owner_id = s.owner_id) AS responsible
             FROM pdf_files f
             JOIN site s ON s.id = f.site_id
+            LEFT JOIN site_owner o ON o.id = s.owner_id
             LEFT JOIN pdf_report r ON r.pdf_hash = f.file_hash
         """
         params: tuple = ()

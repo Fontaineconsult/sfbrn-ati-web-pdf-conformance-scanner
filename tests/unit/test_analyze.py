@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pikepdf
 
-from pdfscan.pdf.analyze import PdfAnalysis, analyze_pdf
+from pdfscan.pdf.analyze import PdfAnalysis, _overlap_fraction, analyze_pdf
 
 _ALLOWED_TEXT_TYPES = {"Image Only", "Hybrid", "Text", None}
 
@@ -74,3 +74,29 @@ def test_blank_pdf_is_untagged_and_formless(tmp_path):
     assert result is not None
     assert result.tagged is False
     assert result.has_form is False
+
+
+def test_blank_pdf_not_complex_graphic(tmp_path):
+    p = tmp_path / "blank.pdf"
+    _make_blank_pdf(p, pages=1)
+    result = analyze_pdf(p)
+    assert result is not None
+    assert result.complex_graphic is False
+
+
+# --- _overlap_fraction geometry (the core of complex_graphic) -----------------
+def test_overlap_fraction_text_fully_inside_image():
+    assert _overlap_fraction((10, 10, 20, 20), (0, 0, 100, 100)) == 1.0
+
+
+def test_overlap_fraction_no_overlap():
+    assert _overlap_fraction((0, 0, 10, 10), (50, 50, 60, 60)) == 0.0
+
+
+def test_overlap_fraction_partial():
+    # Left half of the text box lies outside the image (image starts at x=5).
+    assert abs(_overlap_fraction((0, 0, 10, 10), (5, 0, 100, 100)) - 0.5) < 1e-9
+
+
+def test_overlap_fraction_degenerate_text_box():
+    assert _overlap_fraction((5, 5, 5, 5), (0, 0, 10, 10)) == 0.0

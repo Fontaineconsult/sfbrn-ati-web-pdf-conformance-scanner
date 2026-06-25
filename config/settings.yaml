@@ -54,6 +54,11 @@ verify:
   batch_size: 50                # PDFs per chunk; also veraPDF files per JVM invocation
   batch_timeout: 1800           # seconds for one batched veraPDF run (falls back per-file)
 
+classification:
+  # Three-signal remediation classifier policy (good_to_go / auto-tag / manual).
+  # Applied at READ time -- editing the profile re-labels PDFs with no re-verify.
+  profile: ./config/classification.yaml
+
 storage:
   root: ./remediation
   # Content-addressed by default: identical bytes are stored once (dedup on

@@ -52,6 +52,7 @@ DEFAULTS: dict[str, Any] = {
     },
     "download": {"timeout": 30, "ssl_insecure_retry": True, "max_bytes": 524288000},
     "verify": {"download_workers": 8, "batch_size": 50, "batch_timeout": 1800},
+    "classification": {"profile": "./config/classification.yaml"},
     "storage": {"root": "./remediation", "template": "{root}/{site}/{hash}.pdf"},
     "resolvers": {"enabled": ["box"]},
     "archive": {

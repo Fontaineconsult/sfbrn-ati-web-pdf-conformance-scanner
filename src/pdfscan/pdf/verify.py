@@ -52,6 +52,7 @@ def _make_report(
         language_set=analysis.language_set if analysis else False,
         page_count=analysis.page_count if analysis else None,
         has_form=analysis.has_form if analysis else False,
+        complex_graphic=analysis.complex_graphic if analysis else False,
     )
 
 

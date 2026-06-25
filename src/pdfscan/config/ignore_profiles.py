@@ -24,7 +24,13 @@ class IgnoreProfiles:
 
 
 def load_ignore_profiles(path: str | os.PathLike) -> IgnoreProfiles:
-    data = yaml.safe_load(Path(path).read_text(encoding="utf-8")) or {}
+    # Tolerate a missing file (mirrors load_classification_profile): read-time
+    # consumers (status/export/classify) may run where no config/ dir exists.
+    # An empty policy counts every failing rule -- safe (stricter), never a crash.
+    p = Path(path)
+    if not p.exists():
+        return IgnoreProfiles(ignore={}, immediate_failures={})
+    data = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
     ignore = {
         str(clause): {str(t) for t in tests}
         for clause, tests in (data.get("ignore") or {}).items()
