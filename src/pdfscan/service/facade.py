@@ -16,7 +16,7 @@ from pdfscan.db.repositories import FailureRepository, PdfRepository, SiteReposi
 from pdfscan.exporters import collect_rows, export_csv, export_excel, export_json
 from pdfscan.models import Site, SiteConfig
 from pdfscan.pipeline.archive import apply_archive_flags, explain, rules_from_settings
-from pdfscan.utils.urls import host_of
+from pdfscan.utils.urls import ensure_scheme, host_of
 
 _EXPORTERS = {"csv": export_csv, "json": export_json, "excel": export_excel}
 
@@ -48,6 +48,9 @@ class ScannerService:
     ) -> int:
         if scope not in {"host", "subdomain", "domain", "path"}:
             raise ScannerError("scope must be host|subdomain|domain|path")
+        seeds = [ensure_scheme(s) for s in seeds if s and s.strip()]
+        if not seeds:
+            raise ScannerError("at least one non-empty seed URL is required")
         allowed = allowed_hosts or [h for h in (host_of(s) for s in seeds) if h]
         cfg = SiteConfig(
             seeds=list(seeds),
@@ -118,9 +121,8 @@ class ScannerService:
     ) -> dict[str, int]:
         cmd = self._verapdf_cmd()
         ignore = self._ignore_profiles()
-        from pdfscan.pdf.verify import verify_pdf
+        from pdfscan.pdf.verify import verify_site
 
-        counts = {"verified": 0, "reused": 0, "failed": 0}
         with session(self.settings.db_path) as conn:
             site = SiteRepository(conn).get_by_name(name)
             if not site:
@@ -130,14 +132,12 @@ class ScannerService:
             if limit:
                 rows = rows[:limit]
             template = site.config.storage_template or str(self.settings.get("storage.template"))
-            for pdf in rows:
-                outcome = verify_pdf(
-                    conn, pdf, self.settings, cmd, ignore,
-                    site_name=site.name, storage_template=template, save=save,
-                )
-                counts[outcome.status] = counts.get(outcome.status, 0) + 1
-                conn.commit()
-        return counts
+            return verify_site(
+                conn, rows, self.settings, cmd, ignore,
+                site_name=site.name, storage_template=template, save=save,
+                workers=int(self.settings.get("verify.download_workers", 8)),
+                batch_size=int(self.settings.get("verify.batch_size", 50)),
+            )
 
     # -- maintenance ------------------------------------------------------------
     def archive(self, name: str) -> int:

@@ -66,8 +66,16 @@ def save_pdf(
     root: str | Path,
     template: str,
 ) -> Path:
-    """Copy a downloaded temp PDF into its remediation location. Returns the dest."""
+    """Copy a downloaded temp PDF into its remediation location. Returns the dest.
+
+    With the default content-addressed template (``{hash}``) an existing dest
+    means identical bytes are already stored, so the copy is skipped (dedup).
+    This is also why replacement is safe: a file swapped at the same URL hashes
+    differently and lands at a new path instead of overwriting the old copy.
+    """
     dest = render_storage_path(pdf_url, site_name, file_hash, root=root, template=template)
+    if dest.exists():
+        return dest
     dest.parent.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(temp_path, dest)
     return dest

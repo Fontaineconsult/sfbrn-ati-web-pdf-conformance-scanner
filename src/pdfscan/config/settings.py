@@ -51,7 +51,8 @@ DEFAULTS: dict[str, Any] = {
         "timeout": 180,
     },
     "download": {"timeout": 30, "ssl_insecure_retry": True, "max_bytes": 524288000},
-    "storage": {"root": "./remediation", "template": "{root}/{site}/{path}/{filename}"},
+    "verify": {"download_workers": 8, "batch_size": 50, "batch_timeout": 1800},
+    "storage": {"root": "./remediation", "template": "{root}/{site}/{hash}.pdf"},
     "resolvers": {"enabled": ["box"]},
     "archive": {
         "keywords": [

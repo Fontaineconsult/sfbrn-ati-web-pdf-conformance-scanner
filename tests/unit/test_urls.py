@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pdfscan.models import SiteConfig
 from pdfscan.utils.urls import (
+    ensure_scheme,
     host_of,
     in_scope,
     is_pdf_url,
@@ -9,6 +10,30 @@ from pdfscan.utils.urls import (
     registrable_domain,
     seed_hosts_from,
 )
+
+
+# --- ensure_scheme ------------------------------------------------------------
+def test_ensure_scheme_adds_https_to_bare_host():
+    assert ensure_scheme("dprc.sfsu.edu") == "https://dprc.sfsu.edu"
+    assert ensure_scheme("dprc.sfsu.edu/path") == "https://dprc.sfsu.edu/path"
+
+
+def test_ensure_scheme_preserves_existing_scheme():
+    assert ensure_scheme("http://dprc.sfsu.edu") == "http://dprc.sfsu.edu"
+    assert ensure_scheme("https://dprc.sfsu.edu/a") == "https://dprc.sfsu.edu/a"
+
+
+def test_ensure_scheme_scheme_relative_and_blank():
+    assert ensure_scheme("//dprc.sfsu.edu") == "https://dprc.sfsu.edu"
+    assert ensure_scheme("  dprc.sfsu.edu  ") == "https://dprc.sfsu.edu"
+    assert ensure_scheme("") == ""
+    assert ensure_scheme("   ") == ""
+
+
+def test_ensure_scheme_makes_host_parseable():
+    # The original bug: host_of can't parse a scheme-less seed, yielding "".
+    assert host_of("dprc.sfsu.edu") == ""
+    assert host_of(ensure_scheme("dprc.sfsu.edu")) == "dprc.sfsu.edu"
 
 
 # --- is_pdf_url ---------------------------------------------------------------

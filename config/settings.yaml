@@ -49,10 +49,19 @@ download:
   ssl_insecure_retry: true      # retry with verify=False on SSLError
   max_bytes: 524288000          # 500 MB cap; larger PDFs are logged as failures
 
+verify:
+  download_workers: 8           # parallel downloads per chunk (I/O-bound)
+  batch_size: 50                # PDFs per chunk; also veraPDF files per JVM invocation
+  batch_timeout: 1800           # seconds for one batched veraPDF run (falls back per-file)
+
 storage:
   root: ./remediation
-  # Template tokens: {root} {site} {path} {filename} {hash} {date}
-  template: "{root}/{site}/{path}/{filename}"
+  # Content-addressed by default: identical bytes are stored once (dedup on
+  # {hash}), and a file replaced at the same URL becomes a new hash -> new file
+  # (never clobbers the prior copy). Tokens: {root} {site} {path} {filename}
+  # {hash} {date}. A URL-path template like {root}/{site}/{path}/{filename} is
+  # browsable but opts out of dedup (and can clobber on replacement).
+  template: "{root}/{site}/{hash}.pdf"
 
 resolvers:
   enabled:

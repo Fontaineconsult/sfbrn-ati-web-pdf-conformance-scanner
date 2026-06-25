@@ -20,7 +20,7 @@ from pdfscan.cli.export import export_app
 from pdfscan.cli.run import run
 from pdfscan.cli.setup import doctor, setup_verapdf
 from pdfscan.cli.site import site_app
-from pdfscan.cli.status import check_404, status
+from pdfscan.cli.status import check_404, rules, status
 from pdfscan.cli.verify import verify
 from pdfscan.config import load_settings
 
@@ -39,6 +39,7 @@ app.command("crawl")(crawl)
 app.command("verify")(verify)
 app.command("run")(run)
 app.command("status")(status)
+app.command("rules")(rules)
 app.command("check-404")(check_404)
 app.command("setup-verapdf")(setup_verapdf)
 app.command("doctor")(doctor)

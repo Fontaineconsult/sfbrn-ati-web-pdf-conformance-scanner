@@ -1,0 +1,14 @@
+# Development dependencies (tests, lint, type-checking), pinned to the
+# versions installed in the project venv. Mirrors the [dev] optional
+# dependency group in pyproject.toml. Includes the runtime requirements.
+#
+#   pip install -r requirements-dev.txt
+
+-r requirements.txt
+
+pytest==9.1.1
+pytest-cov==7.1.0
+ruff==0.15.19
+mypy==2.1.0
+types-requests==2.33.0.20260518
+types-PyYAML==6.0.12.20260518

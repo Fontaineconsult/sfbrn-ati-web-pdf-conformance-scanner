@@ -2,7 +2,7 @@
 
 from pdfscan.models.failure import Failure
 from pdfscan.models.pdf import DiscoveredPdf, PdfFile
-from pdfscan.models.report import PdfReport
+from pdfscan.models.report import PdfReport, ReportRule
 from pdfscan.models.site import Site, SiteConfig
 
 __all__ = [
@@ -11,5 +11,6 @@ __all__ = [
     "DiscoveredPdf",
     "PdfFile",
     "PdfReport",
+    "ReportRule",
     "Failure",
 ]

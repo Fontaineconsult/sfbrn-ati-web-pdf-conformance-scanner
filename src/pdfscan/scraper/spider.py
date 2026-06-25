@@ -14,7 +14,7 @@ import scrapy
 from pdfscan.config import Settings
 from pdfscan.models import Site
 from pdfscan.resolvers import ResolverRegistry, default_registry
-from pdfscan.utils.urls import in_scope, is_pdf_url, normalize_url, seed_hosts_from
+from pdfscan.utils.urls import ensure_scheme, in_scope, is_pdf_url, normalize_url, seed_hosts_from
 
 try:  # scrapy-playwright is optional at runtime (only needed for render_js sites)
     from scrapy_playwright.page import PageMethod
@@ -61,7 +61,10 @@ class GenericPdfSpider(scrapy.Spider):
     # -- requests ---------------------------------------------------------------
     def _seed_requests(self):
         for seed in self.cfg.seeds:
-            yield self._page_request(seed, parent=seed)
+            url = ensure_scheme(seed)
+            if not url:
+                continue
+            yield self._page_request(url, parent=url)
 
     async def start(self):  # Scrapy >= 2.13 entry point
         for request in self._seed_requests():

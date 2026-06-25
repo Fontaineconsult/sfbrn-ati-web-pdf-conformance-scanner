@@ -8,7 +8,7 @@ from pdfscan.config import Settings
 from pdfscan.db import session
 from pdfscan.db.repositories import PdfRepository, SiteRepository
 from pdfscan.models import Site, SiteConfig
-from pdfscan.utils.urls import host_of
+from pdfscan.utils.urls import ensure_scheme, host_of
 
 site_app = typer.Typer(help="Manage sites to scan.", no_args_is_help=True)
 
@@ -42,9 +42,12 @@ def site_add(
     """Add or update a site."""
     if scope not in {"host", "subdomain", "domain", "path"}:
         raise typer.BadParameter("scope must be host|subdomain|domain|path")
-    allowed = list(host) if host else [h for h in (host_of(s) for s in seed) if h]
+    seeds = [ensure_scheme(s) for s in seed if s and s.strip()]
+    if not seeds:
+        raise typer.BadParameter("at least one non-empty --seed URL is required")
+    allowed = list(host) if host else [h for h in (host_of(s) for s in seeds) if h]
     cfg = SiteConfig(
-        seeds=list(seed),
+        seeds=list(seeds),
         allowed_hosts=allowed,
         scope=scope,
         max_depth=depth,
@@ -60,7 +63,7 @@ def site_add(
     settings = _settings(ctx)
     with session(settings.db_path) as conn:
         sid = SiteRepository(conn).upsert(Site(id=None, name=name, config=cfg, notes=notes))
-    typer.echo(f"Saved site '{name}' (id={sid}); scope={scope} depth={depth} seeds={list(seed)}")
+    typer.echo(f"Saved site '{name}' (id={sid}); scope={scope} depth={depth} seeds={seeds}")
 
 
 @site_app.command("list")

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from urllib.parse import urlsplit, urlunsplit
 
 import tldextract
@@ -11,6 +12,26 @@ from pdfscan.models import SiteConfig
 # tldextract instance that does not hit the network for the public-suffix list;
 # the bundled snapshot is sufficient for scope decisions.
 _EXTRACT = tldextract.TLDExtract(suffix_list_urls=())
+
+# Matches an explicit "<scheme>://" prefix (http, https, ftp, ...).
+_SCHEME_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9+.-]*://")
+
+
+def ensure_scheme(url: str, default_scheme: str = "https") -> str:
+    """Return ``url`` with a scheme, prepending ``default_scheme`` when none is present.
+
+    Seeds are commonly entered bare (``dprc.sfsu.edu``); Scrapy rejects URLs
+    without a scheme, and :func:`host_of` cannot parse the host out of one. This
+    canonicalizes such inputs to ``https://dprc.sfsu.edu``. A scheme-relative
+    ``//host`` keeps its implied form, and an already-qualified URL is returned
+    unchanged. Empty/whitespace input is returned as-is for the caller to skip.
+    """
+    value = (url or "").strip()
+    if not value or _SCHEME_RE.match(value):
+        return value
+    if value.startswith("//"):
+        return f"{default_scheme}:{value}"
+    return f"{default_scheme}://{value}"
 
 
 def normalize_url(url: str) -> str:

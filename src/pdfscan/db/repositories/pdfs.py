@@ -62,12 +62,17 @@ class PdfRepository(BaseRepository):
         return [_row_to_pdf(r) for r in self.conn.execute(sql, (site_id,)).fetchall()]
 
     def list_unverified(self, site_id: int) -> list[PdfFile]:
-        """Rows lacking a stored report (no hash, or hash with no pdf_report row)."""
+        """Rows lacking a stored report (no hash, or hash with no pdf_report row).
+
+        Known-404 PDFs are skipped -- there is nothing to download, so re-running
+        verify should not keep retrying them. Clearing the flag (e.g. via
+        ``check-404`` after the file returns) makes them eligible again.
+        """
         rows = self.conn.execute(
             """
             SELECT f.* FROM pdf_files f
             LEFT JOIN pdf_report r ON r.pdf_hash = f.file_hash
-            WHERE f.site_id = ? AND f.removed = 0
+            WHERE f.site_id = ? AND f.removed = 0 AND f.pdf_404 = 0
               AND (f.file_hash IS NULL OR r.id IS NULL)
             ORDER BY f.id
             """,

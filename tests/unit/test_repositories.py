@@ -48,6 +48,18 @@ def test_pdf_dedup_and_unverified(conn, sample_site):
     assert pdfs.get(id1).local_path == "/tmp/a.pdf"
 
 
+def test_list_unverified_skips_known_404(conn, sample_site):
+    sid = SiteRepository(conn).add(sample_site)
+    pdfs = PdfRepository(conn)
+    ok = pdfs.upsert(DiscoveredPdf(PDF, PARENT, sid))
+    gone = pdfs.upsert(DiscoveredPdf("https://hr.sfsu.edu/gone.pdf", PARENT, sid))
+    pdfs.set_404(gone, pdf_404=True, parent_404=False)
+
+    ids = {p.id for p in pdfs.list_unverified(sid)}
+    assert ok in ids
+    assert gone not in ids  # known-404 is skipped
+
+
 def test_offsite_flag_persisted(conn, sample_site):
     sid = SiteRepository(conn).add(sample_site)
     pdfs = PdfRepository(conn)

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pdfscan.config import load_ignore_profiles
-from pdfscan.pdf.verapdf import VeraSummary, parse_verapdf
+from pdfscan.pdf.verapdf import VeraSummary, extract_rules, parse_verapdf, summarize
 
 IGNORE = load_ignore_profiles("config/ignore_profiles.yaml")
 
@@ -77,3 +77,43 @@ def test_parse_no_rules_returns_clean_summary():
     assert summary == VeraSummary(
         violations=0, failed_checks=0, tagged=True, image_only=False
     )
+
+
+# --- extract_rules / summarize ------------------------------------------------
+def test_extract_rules_keeps_every_rule_including_ignored():
+    validation_result = {"details": {"ruleSummaries": _rule_summaries()}}
+    rules = extract_rules(_report(validation_result))
+    # All 4 rules are retained verbatim (the ignored one too) so policy can be
+    # re-evaluated later.
+    assert len(rules) == 4
+    assert (rules[0].clause, rules[0].test_number, rules[0].failed_checks) == ("7.2", "10", 99)
+    # summarize reproduces parse_verapdf exactly.
+    assert summarize(rules, IGNORE) == parse_verapdf(_report(validation_result), IGNORE)
+
+
+def test_extract_rules_normalizes_and_captures_optional_fields():
+    validation_result = {
+        "details": {
+            "ruleSummaries": [
+                {
+                    "clause": "7.1",
+                    "testNumber": 3,  # int -> coerced to "3"
+                    "failedChecks": 2,
+                    "ruleStatus": "FAILED",
+                    "specification": "ISO 14289-1:2014",
+                    "description": "Image not tagged",
+                }
+            ]
+        }
+    }
+    (rule,) = extract_rules(_report(validation_result))
+    assert rule.clause == "7.1"
+    assert rule.test_number == "3"
+    assert rule.failed_checks == 2
+    assert rule.status == "FAILED"
+    assert rule.specification == "ISO 14289-1:2014"
+    assert rule.description == "Image not tagged"
+
+
+def test_extract_rules_empty_when_no_validation_result():
+    assert extract_rules({"report": {"jobs": []}}) == []

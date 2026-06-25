@@ -3,7 +3,7 @@ from __future__ import annotations
 import sqlite3
 
 from pdfscan.db.repositories.base import BaseRepository
-from pdfscan.models import PdfReport
+from pdfscan.models import PdfReport, ReportRule
 
 
 def _row_to_report(row: sqlite3.Row) -> PdfReport:
@@ -80,3 +80,53 @@ class ReportRepository(BaseRepository):
             "SELECT * FROM pdf_report WHERE pdf_hash = ?", (file_hash,)
         ).fetchone()
         return _row_to_report(row) if row else None
+
+    # -- per-rule detail --------------------------------------------------------
+    def replace_rules(self, pdf_hash: str, rules: list[ReportRule]) -> int:
+        """Replace the stored veraPDF rules for ``pdf_hash``. Returns the count.
+
+        Idempotent across re-verification: existing rows for the hash are cleared
+        first so a fresh veraPDF run fully supersedes the old result.
+        """
+        self.conn.execute("DELETE FROM report_rule WHERE pdf_hash = ?", (pdf_hash,))
+        self.conn.executemany(
+            """
+            INSERT INTO report_rule
+                (pdf_hash, clause, test_number, status, failed_checks, specification, description)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    pdf_hash,
+                    r.clause,
+                    r.test_number,
+                    r.status,
+                    r.failed_checks,
+                    r.specification,
+                    r.description,
+                )
+                for r in rules
+            ],
+        )
+        return len(rules)
+
+    def list_rules(self, pdf_hash: str) -> list[ReportRule]:
+        """Return the stored veraPDF rules for ``pdf_hash`` (insertion order)."""
+        rows = self.conn.execute(
+            """
+            SELECT clause, test_number, status, failed_checks, specification, description
+            FROM report_rule WHERE pdf_hash = ? ORDER BY id
+            """,
+            (pdf_hash,),
+        ).fetchall()
+        return [
+            ReportRule(
+                clause=r["clause"],
+                test_number=r["test_number"],
+                status=r["status"],
+                failed_checks=r["failed_checks"],
+                specification=r["specification"],
+                description=r["description"],
+            )
+            for r in rows
+        ]

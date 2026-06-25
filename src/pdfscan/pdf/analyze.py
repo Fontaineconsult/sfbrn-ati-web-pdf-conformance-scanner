@@ -33,7 +33,10 @@ class PdfAnalysis:
         tagged: Document declares a ``/StructTreeRoot``.
         has_form: Document has AcroForm fields (form-field annotations).
         text_type: ``"Image Only"`` / ``"Hybrid"`` / ``"Text"`` or ``None``
-            when no text and no full-page image were detected.
+            when no text and no full-page image were detected. This is a
+            content heuristic for diagnostics only -- veraPDF's clause 7.1/3
+            flag (the report's ``image_only``) is authoritative for the
+            image-only determination.
         title_set: A non-empty document title is present (docinfo or XMP).
         language_set: The catalog declares a non-empty ``/Lang``.
         page_count: Number of pages, or ``None`` if it could not be read.
@@ -80,6 +83,21 @@ def analyze_pdf(pdf_path: str | Path) -> PdfAnalysis | None:
         language_set=language_set,
         page_count=page_count,
     )
+
+
+def is_encrypted(pdf_path: str | Path) -> bool:
+    """Return True if the PDF is password-protected (needs a password to open).
+
+    Used to give a distinct signal when :func:`analyze_pdf` returns ``None``: an
+    encrypted document is a known, explainable case rather than a corrupt file.
+    """
+    try:
+        with pikepdf.Pdf.open(pdf_path):
+            return False
+    except pikepdf.PasswordError:
+        return True
+    except Exception:  # noqa: BLE001 - any other open error is "not encrypted, just unreadable"
+        return False
 
 
 def _check_if_tagged(pdf: pikepdf.Pdf) -> bool:
@@ -174,7 +192,11 @@ def _image_over_text(page) -> bool:
 
 
 def _pdf_text_type(pdf_path: str | Path) -> str | None:
-    """Classify the document's text content.
+    """Classify the document's text content (diagnostic heuristic only).
+
+    This complements but does not override veraPDF: the authoritative image-only
+    verdict is veraPDF clause 7.1/3 (the report's ``image_only`` flag). This
+    pdfminer classification is retained for insight when the two disagree.
 
     Returns:
         ``"Hybrid"``     - full-page images *and* extractable text present.

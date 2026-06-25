@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import sqlite3
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 DDL = """
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -54,6 +54,22 @@ CREATE TABLE IF NOT EXISTS pdf_report (
     has_form      INTEGER NOT NULL DEFAULT 0,
     created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+-- Per-rule veraPDF results, stored verbatim (no ignore policy applied) so the
+-- ignore profile can be re-evaluated without re-running veraPDF. One row per
+-- failing clause/test; aggregates in pdf_report are derivable from these.
+CREATE TABLE IF NOT EXISTS report_rule (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    pdf_hash      TEXT NOT NULL,
+    clause        TEXT,
+    test_number   TEXT,
+    status        TEXT,
+    failed_checks INTEGER NOT NULL DEFAULT 0,
+    specification TEXT,
+    description   TEXT,
+    FOREIGN KEY (pdf_hash) REFERENCES pdf_report(pdf_hash) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS ix_report_rule_hash ON report_rule(pdf_hash);
 
 CREATE TABLE IF NOT EXISTS failure (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,

@@ -23,7 +23,9 @@ def migrate(conn: sqlite3.Connection) -> int:
     """
     create_all(conn)
     version = current_version(conn)
-    # (no migrations beyond v1 yet)
+    # v2 adds the report_rule table; it is created by create_all() above
+    # (CREATE TABLE IF NOT EXISTS), so only the version stamp needs bumping.
+    # Future column changes add explicit `if version < N:` ALTER blocks here.
     if version != SCHEMA_VERSION:
         conn.execute("UPDATE schema_version SET version = ?", (SCHEMA_VERSION,))
         version = SCHEMA_VERSION

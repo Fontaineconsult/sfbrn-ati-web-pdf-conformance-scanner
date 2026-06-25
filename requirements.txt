@@ -1,0 +1,21 @@
+# Runtime dependencies for pdfscan, pinned to the versions installed and
+# verified in the project venv (Python 3.14). Mirrors [project.dependencies]
+# in pyproject.toml, which remains the source of truth.
+#
+#   pip install -r requirements.txt
+#
+# For development tooling (pytest/ruff/mypy) see requirements-dev.txt.
+
+scrapy==2.16.0
+scrapy-playwright==0.0.47
+playwright==1.60.0
+beautifulsoup4==4.15.0
+lxml==6.1.1
+requests==2.34.2
+pikepdf==10.9.1
+pdfminer.six==20260107
+openpyxl==3.1.5
+PyYAML==6.0.3
+python-dotenv==1.2.2
+typer==0.26.7
+tldextract==5.3.1
