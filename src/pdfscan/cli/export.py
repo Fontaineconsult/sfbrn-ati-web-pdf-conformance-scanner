@@ -7,11 +7,11 @@ from pathlib import Path
 import typer
 
 from pdfscan.config import Settings
-from pdfscan.exporters import collect_rows, export_csv, export_excel, export_json
+from pdfscan.exporters import collect_rows, export_csv, export_excel, export_html, export_json
 
-export_app = typer.Typer(help="Export results (csv/json/excel).", no_args_is_help=True)
+export_app = typer.Typer(help="Export results (csv/json/excel/html).", no_args_is_help=True)
 
-_WRITERS = {"csv": export_csv, "json": export_json, "excel": export_excel}
+_WRITERS = {"csv": export_csv, "json": export_json, "excel": export_excel, "html": export_html}
 
 
 def _settings(ctx: typer.Context) -> Settings:
@@ -60,3 +60,14 @@ def export_excel_cmd(
     all_sites: bool = typer.Option(False, "--all"),
 ) -> None:
     _export(ctx, "excel", site, out, all_sites)
+
+
+@export_app.command("html")
+def export_html_cmd(
+    ctx: typer.Context,
+    site: str | None = typer.Argument(None),
+    out: Path = typer.Option(..., "--out", "-o"),
+    all_sites: bool = typer.Option(False, "--all"),
+) -> None:
+    """Write a status-demarcated HTML accessibility report."""
+    _export(ctx, "html", site, out, all_sites)

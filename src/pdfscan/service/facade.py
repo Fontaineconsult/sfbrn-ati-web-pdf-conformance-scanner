@@ -20,12 +20,18 @@ from pdfscan.db.repositories import (
     SiteOwnerRepository,
     SiteRepository,
 )
-from pdfscan.exporters import collect_rows, export_csv, export_excel, export_json
+from pdfscan.exporters import (
+    collect_rows,
+    export_csv,
+    export_excel,
+    export_html,
+    export_json,
+)
 from pdfscan.models import Person, Site, SiteConfig, SiteOwner
 from pdfscan.pipeline.archive import apply_archive_flags, explain, rules_from_settings
 from pdfscan.utils.urls import ensure_scheme, host_of
 
-_EXPORTERS = {"csv": export_csv, "json": export_json, "excel": export_excel}
+_EXPORTERS = {"csv": export_csv, "json": export_json, "excel": export_excel, "html": export_html}
 
 
 class ScannerError(RuntimeError):
@@ -450,7 +456,7 @@ class ScannerService:
         if exports:
             export_dir = self.settings.export_dir
             export_dir.mkdir(parents=True, exist_ok=True)
-            ext = {"csv": "csv", "json": "json", "excel": "xlsx"}
+            ext = {"csv": "csv", "json": "json", "excel": "xlsx", "html": "html"}
             result["exports"] = {
                 fmt: self.export(fmt, export_dir / f"{name}.{ext[fmt]}", name=name)["path"]
                 for fmt in exports

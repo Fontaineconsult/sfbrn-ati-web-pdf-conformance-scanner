@@ -64,6 +64,62 @@ def test_collect_rows_adds_classification(tmp_path):
     assert rows[0]["classification_reason"]
 
 
+def _classified_rows():
+    def row(**over):
+        base = dict.fromkeys(COLUMNS, None)
+        base.update({"site": "hr", "offsite": 0, "failed_checks": 0})
+        base.update(over)
+        return base
+
+    return [
+        row(pdf_url="https://x/good.pdf", violations=0, tagged=1, title_set=1, language_set=1,
+            page_count=2, classification="good_to_go", classification_reason="tagged, no counted violations"),
+        row(pdf_url="https://x/scan.pdf", violations=12, tagged=1, image_only=1, has_form=1,
+            failed_checks=500, page_count=1, classification="needs_manual_remediation",
+            classification_reason="image-only / scanned PDF needs OCR"),
+        row(pdf_url="https://x/pending.pdf", violations=None, classification="pending"),
+    ]
+
+
+def test_export_html_groups_and_demarcates_status(tmp_path):
+    from pdfscan.exporters import export_html, render_html
+
+    doc = render_html(_classified_rows())
+    # status sections present
+    assert "Needs manual remediation" in doc
+    assert "Good to go" in doc
+    assert "Pending verification" in doc
+    # status colour-coding hooks + flags
+    assert 'class="status manual"' in doc
+    assert "image-only" in doc and "form" in doc
+    # rows rendered with links
+    assert "good.pdf" in doc and "scan.pdf" in doc
+    # summary tiles
+    assert "Needs manual" in doc and "Auto-taggable" in doc
+
+    p = export_html(_classified_rows(), tmp_path / "report.html")
+    assert p.exists()
+    assert p.read_text(encoding="utf-8").startswith("<!DOCTYPE html>")
+
+
+def test_export_html_escapes_content(tmp_path):
+    from pdfscan.exporters import render_html
+
+    rows = [
+        {
+            **dict.fromkeys(COLUMNS, None),
+            "site": "hr",
+            "pdf_url": "https://x/a.pdf?q=<script>",
+            "violations": 0,
+            "tagged": 1,
+            "classification": "good_to_go",
+        }
+    ]
+    doc = render_html(rows)
+    assert "<script>" not in doc  # raw tag must be escaped
+    assert "&lt;script&gt;" in doc
+
+
 def test_collect_rows_includes_owner_and_responsible(tmp_path):
     from pdfscan.config import load_settings
     from pdfscan.db import migrate, session
