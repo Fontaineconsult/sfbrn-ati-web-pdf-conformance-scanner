@@ -7,9 +7,20 @@ database:
   busy_timeout_ms: 30000
 
 paths:
+  # output_root relocates ALL outputs (database, exports/reports, saved PDF
+  # copies, scratch) outside the project at once: set it to an absolute folder
+  # and the relative paths below resolve under it. Leave null to keep outputs in
+  # the project. Override per-run with --output-root or PDFSCAN_OUTPUT_ROOT.
+  # e.g. output_root: D:/pdfscan-output   (or /mnt/data/pdfscan on Linux/Mac)
+  output_root: null
   temp_dir: ./.scratch          # downloads-in-progress, resume progress files
-  export_dir: ./exports
-  verapdf_dir: ./vendor/verapdf  # where the bundled veraPDF is installed/located
+  export_dir: ./exports         # csv/json/excel/html reports (PDFSCAN_EXPORT_DIR)
+  verapdf_dir: ./vendor/verapdf  # bundled veraPDF (an input; stays in the project)
+
+# Saved-PDF copies + database are outputs too and honor output_root:
+#   storage.root  (below)  -> PDFSCAN_STORAGE_ROOT
+#   database.path (above)  -> PDFSCAN_DB_PATH
+# Each accepts an absolute path to live anywhere, independent of output_root.
 
 # Default crawl behavior (overridable per-site and per-run)
 crawl:

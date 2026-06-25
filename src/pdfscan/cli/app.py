@@ -61,15 +61,44 @@ def main(
         None, "--config", help="Path to settings.yaml (default: ./config/settings.yaml)."
     ),
     db: Path | None = typer.Option(None, "--db", help="Override the SQLite database path."),
+    output_root: Path | None = typer.Option(
+        None, "--output-root", help="Relocate ALL outputs (db/exports/remediation/scratch) here."
+    ),
+    export_dir: Path | None = typer.Option(
+        None, "--export-dir", help="Override where reports/exports are written."
+    ),
+    storage_root: Path | None = typer.Option(
+        None, "--storage-root", help="Override where saved PDF copies are written."
+    ),
     verbose: bool = typer.Option(False, "-v", "--verbose", help="Verbose logging."),
 ) -> None:
     """Load layered settings and stash them on the context for sub-commands."""
     overrides: dict = {}
     if db is not None:
         overrides["database"] = {"path": str(db)}
+    paths_over: dict = {}
+    if output_root is not None:
+        paths_over["output_root"] = str(output_root)
+    if export_dir is not None:
+        paths_over["export_dir"] = str(export_dir)
+    if paths_over:
+        overrides["paths"] = paths_over
+    if storage_root is not None:
+        overrides["storage"] = {"root": str(storage_root)}
     if verbose:
         overrides["logging"] = {"level": "DEBUG"}
     ctx.obj = load_settings(config_path=config, overrides=overrides)
+
+
+@app.command()
+def paths(ctx: typer.Context) -> None:
+    """Show where each output (database, exports, remediation, scratch) will be written."""
+    settings = ctx.obj
+    resolved = settings.output_paths()
+    root = resolved["output_root"]
+    typer.echo(f"output_root : {root or '(project root: ' + str(settings.base_dir) + ')'}")
+    for key in ("database", "exports", "remediation", "scratch", "verapdf"):
+        typer.echo(f"{key:12}: {resolved[key]}")
 
 
 @app.command()

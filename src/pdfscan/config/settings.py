@@ -1,8 +1,15 @@
 """Global settings: layered YAML + env + built-in defaults with dot-notation access.
 
 Precedence (highest first): explicit overrides (CLI) > env (PDFSCAN_*) > settings.yaml
-> built-in DEFAULTS. Relative data paths resolve against the project root (the parent
-of the directory containing settings.yaml), so the tool works from any CWD.
+> built-in DEFAULTS. Relative *input* paths resolve against the project root (the
+parent of the directory containing settings.yaml), so the tool works from any CWD.
+
+Output locations (database, saved PDF copies, exports/reports, scratch) are
+relocatable. Set ``paths.output_root`` (or ``PDFSCAN_OUTPUT_ROOT`` / ``--output-root``)
+to move *all* of them outside the project at once -- relative output paths then
+resolve under that root instead of the project. Each output can still be pointed
+somewhere else individually via its own setting/env/flag, and absolute paths are
+always honored as-is.
 """
 
 from __future__ import annotations
@@ -19,6 +26,9 @@ from dotenv import load_dotenv
 DEFAULTS: dict[str, Any] = {
     "database": {"path": "./data/pdfscan.db", "wal": True, "busy_timeout_ms": 30000},
     "paths": {
+        # output_root: when set, relative output paths (db, exports, remediation,
+        # scratch) resolve under here instead of the project root. None -> project.
+        "output_root": None,
         "temp_dir": "./.scratch",
         "export_dir": "./exports",
         "verapdf_dir": "./vendor/verapdf",
@@ -123,31 +133,64 @@ class Settings:
         return cur
 
     def resolve_path(self, value: str | os.PathLike) -> Path:
+        """Resolve an *input* path: absolute as-is, else under the project root."""
         p = Path(value)
         return p if p.is_absolute() else (self.base_dir / p)
+
+    def resolve_output(self, value: str | os.PathLike) -> Path:
+        """Resolve an *output* path: absolute as-is, else under :attr:`output_base`."""
+        p = Path(value)
+        return p if p.is_absolute() else (self.output_base / p)
+
+    # --- output relocation -----------------------------------------------------
+    @property
+    def output_root(self) -> Path | None:
+        """Optional base dir for all outputs (env/flag/yaml); ``None`` -> project."""
+        value = os.environ.get("PDFSCAN_OUTPUT_ROOT") or self.get("paths.output_root")
+        return self.resolve_path(value) if value else None
+
+    @property
+    def output_base(self) -> Path:
+        """Where relative output paths anchor: ``output_root`` if set, else project."""
+        return self.output_root or self.base_dir
 
     # --- convenience accessors -------------------------------------------------
     @property
     def db_path(self) -> Path:
         env = os.environ.get("PDFSCAN_DB_PATH")
-        return self.resolve_path(env or self.get("database.path", "./data/pdfscan.db"))
+        return self.resolve_output(env or self.get("database.path", "./data/pdfscan.db"))
 
     @property
     def temp_dir(self) -> Path:
-        return self.resolve_path(self.get("paths.temp_dir", "./.scratch"))
+        env = os.environ.get("PDFSCAN_TEMP_DIR")
+        return self.resolve_output(env or self.get("paths.temp_dir", "./.scratch"))
 
     @property
     def export_dir(self) -> Path:
-        return self.resolve_path(self.get("paths.export_dir", "./exports"))
+        env = os.environ.get("PDFSCAN_EXPORT_DIR")
+        return self.resolve_output(env or self.get("paths.export_dir", "./exports"))
 
     @property
     def verapdf_dir(self) -> Path:
+        # Vendored tooling (an input), so it stays anchored to the project root.
         return self.resolve_path(self.get("paths.verapdf_dir", "./vendor/verapdf"))
 
     @property
     def storage_root(self) -> Path:
         env = os.environ.get("PDFSCAN_STORAGE_ROOT")
-        return self.resolve_path(env or self.get("storage.root", "./remediation"))
+        return self.resolve_output(env or self.get("storage.root", "./remediation"))
+
+    def output_paths(self) -> dict[str, str]:
+        """Resolved output locations (for display / ``pdfscan paths``)."""
+        root = self.output_root
+        return {
+            "output_root": str(root) if root else None,
+            "database": str(self.db_path),
+            "exports": str(self.export_dir),
+            "remediation": str(self.storage_root),
+            "scratch": str(self.temp_dir),
+            "verapdf": str(self.verapdf_dir),
+        }
 
     @property
     def verapdf_command(self) -> str | None:

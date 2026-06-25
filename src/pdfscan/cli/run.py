@@ -21,7 +21,7 @@ def run(
     no_verify: bool = typer.Option(False, "--no-verify"),
     no_archive: bool = typer.Option(False, "--no-archive"),
     do_404: bool = typer.Option(False, "--check-404", help="Also refresh 404 status."),
-    export: list[str] = typer.Option(None, "--export", help="csv|json|excel (repeatable)."),
+    export: list[str] = typer.Option(None, "--export", help="csv|json|excel|html (repeatable)."),
     depth: int | None = typer.Option(None, "--depth"),
     render: bool | None = typer.Option(None, "--render/--no-render"),
     include_offsite_pdfs: bool | None = typer.Option(
@@ -46,7 +46,7 @@ def run(
         if val is not None:
             overrides[key] = val
 
-    bad = [f for f in (export or []) if f not in {"csv", "json", "excel"}]
+    bad = [f for f in (export or []) if f not in {"csv", "json", "excel", "html"}]
     if bad:
         typer.echo(f"Invalid --export value(s): {bad}")
         raise typer.Exit(code=1)

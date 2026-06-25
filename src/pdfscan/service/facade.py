@@ -17,6 +17,7 @@ from pdfscan.db.repositories import (
     FailureRepository,
     PdfRepository,
     PersonRepository,
+    ReportRepository,
     SiteOwnerRepository,
     SiteRepository,
 )
@@ -219,6 +220,54 @@ class ScannerService:
             "responsible": responsible,
             "failures": n_fail,
         }
+
+    def pdf_rules(self, name: str, url: str, *, limit: int = 5) -> dict[str, Any]:
+        """Per-PDF veraPDF rule breakdown for PDFs whose URL contains ``url``.
+
+        Each rule is annotated with the current ignore policy ("ignored" /
+        "counts" / a flag), so an agent can see *why* a PDF fails and which
+        clauses count toward its violations -- without re-running veraPDF.
+        """
+        ignore = self._ignore_profiles()
+        with session(self.settings.db_path) as conn:
+            site = SiteRepository(conn).get_by_name(name)
+            if not site:
+                raise ScannerError(f"No such site '{name}'")
+            pdfs = PdfRepository(conn)
+            reports = ReportRepository(conn)
+            matches = [
+                p for p in pdfs.list_by_site(site.id) if url.lower() in p.pdf_url.lower()
+            ]
+            shown = []
+            for p in matches[:limit]:
+                rules = reports.list_rules(p.file_hash) if p.file_hash else []
+                counted = 0
+                detail = []
+                for r in rules:
+                    ignored = ignore.is_ignored(r.clause, r.test_number)
+                    flag = ignore.flag_for(r.clause, r.test_number)
+                    if not ignored:
+                        counted += 1
+                    detail.append(
+                        {
+                            "clause": r.clause,
+                            "test": r.test_number,
+                            "failed_checks": r.failed_checks,
+                            "policy": "ignored" if ignored else (flag or "counts"),
+                            "description": r.description,
+                        }
+                    )
+                shown.append(
+                    {
+                        "pdf_url": p.pdf_url,
+                        "file_hash": p.file_hash,
+                        "verified": bool(p.file_hash),
+                        "counted_violations": counted,
+                        "total_rules": len(rules),
+                        "rules": detail,
+                    }
+                )
+        return {"site": name, "query": url, "matched": len(matches), "pdfs": shown}
 
     # -- ownership (site owners + responsible people) ---------------------------
     def add_owner(self, key: str, *, label: str | None = None, notes: str | None = None) -> int:
@@ -427,6 +476,10 @@ class ScannerService:
             "verapdf": {"ok": vera_ok, "version": vera_ver},
             "playwright_chromium": playwright_chromium_installed(),
         }
+
+    def paths(self) -> dict[str, Any]:
+        """Resolved output locations (database, exports, remediation, scratch, verapdf)."""
+        return self.settings.output_paths()
 
     # -- orchestration ----------------------------------------------------------
     def run(

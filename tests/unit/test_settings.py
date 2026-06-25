@@ -41,3 +41,67 @@ def test_relative_paths_resolve_against_base_dir(tmp_path):
     s = load_settings(config_path=cfg_dir / "settings.yaml")
     # base_dir is the parent of config/, so ./data/x.db resolves under tmp_path
     assert s.db_path == tmp_path / "data" / "x.db"
+
+
+# --- custom output locations --------------------------------------------------
+def test_output_root_relocates_all_outputs(tmp_path):
+    out = tmp_path / "out"
+    s = load_settings(
+        config_path=tmp_path / "missing.yaml",
+        overrides={"paths": {"output_root": str(out)}},
+    )
+    assert s.output_root == out
+    assert s.db_path == out / "data" / "pdfscan.db"
+    assert s.export_dir == out / "exports"
+    assert s.storage_root == out / "remediation"
+    assert s.temp_dir == out / ".scratch"
+    # veraPDF is vendored tooling (an input) -> stays under the project, not output_root
+    assert s.verapdf_dir == s.base_dir / "vendor" / "verapdf"
+
+
+def test_output_root_env_override(tmp_path, monkeypatch):
+    out = tmp_path / "envout"
+    monkeypatch.setenv("PDFSCAN_OUTPUT_ROOT", str(out))
+    s = load_settings(config_path=tmp_path / "missing.yaml")
+    assert s.output_root == out
+    assert s.export_dir == out / "exports"
+
+
+def test_per_output_env_overrides(tmp_path, monkeypatch):
+    monkeypatch.setenv("PDFSCAN_EXPORT_DIR", str(tmp_path / "reports"))
+    monkeypatch.setenv("PDFSCAN_STORAGE_ROOT", str(tmp_path / "pdfs"))
+    monkeypatch.setenv("PDFSCAN_TEMP_DIR", str(tmp_path / "tmp"))
+    s = load_settings(config_path=tmp_path / "missing.yaml")
+    assert s.export_dir == tmp_path / "reports"
+    assert s.storage_root == tmp_path / "pdfs"
+    assert s.temp_dir == tmp_path / "tmp"
+
+
+def test_absolute_output_path_ignores_output_root(tmp_path):
+    abs_db = tmp_path / "elsewhere" / "my.db"
+    s = load_settings(
+        config_path=tmp_path / "missing.yaml",
+        overrides={
+            "paths": {"output_root": str(tmp_path / "out")},
+            "database": {"path": str(abs_db)},
+        },
+    )
+    assert s.db_path == abs_db
+
+
+def test_no_output_root_is_backward_compatible(tmp_path):
+    s = load_settings(config_path=tmp_path / "missing.yaml")
+    assert s.output_root is None
+    assert s.export_dir == s.base_dir / "exports"  # unchanged from prior behavior
+
+
+def test_output_paths_summary(tmp_path):
+    out = tmp_path / "out"
+    s = load_settings(
+        config_path=tmp_path / "missing.yaml",
+        overrides={"paths": {"output_root": str(out)}},
+    )
+    summary = s.output_paths()
+    assert summary["output_root"] == str(out)
+    assert summary["exports"] == str(out / "exports")
+    assert summary["database"].endswith("pdfscan.db")
