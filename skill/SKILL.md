@@ -35,6 +35,23 @@ Or run the whole pipeline at once:
 pdfscan run <name> --export excel --export json
 ```
 
+## Scan sessions (isolated, relocatable workspaces)
+Keep each audit's data out of the repo and apart from other audits. A session is
+a named workspace (its own database + exports + saved PDFs) rooted anywhere on disk.
+```
+pdfscan session add <name> --root <path> --use --init   # register, activate, create DB
+pdfscan session list            # all sessions; active marked with *
+pdfscan session current         # active session, or "project-local"
+pdfscan session use <name>      # switch the active session
+pdfscan session show <name>     # metadata + resolved output paths
+pdfscan session path [<name>]   # print a session's root (scriptable)
+pdfscan session remove <name> [--delete-files]
+```
+Once a session is active, all `crawl`/`verify`/`export`/`status`/`site` commands
+read & write only under it. For a one-off, prefix any command with
+`--session <name>` (or `--session-root <path>`) instead of switching the active one.
+With no session selected, behavior is unchanged (outputs stay in the project).
+
 ## Other tools
 - `pdfscan archive test <url>` — check whether the archive heuristics flag a URL (no scan).
 - `pdfscan archive apply <name>` — flag archived-looking PDFs in the DB.

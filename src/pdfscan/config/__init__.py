@@ -1,6 +1,12 @@
 """Configuration loading: global settings, veraPDF ignore + classification profiles."""
 
 from pdfscan.config.ignore_profiles import IgnoreProfiles, load_ignore_profiles
+from pdfscan.config.sessions import (
+    SessionError,
+    SessionRecord,
+    SessionRegistry,
+    load_sessions,
+)
 from pdfscan.config.settings import Settings, load_settings
 
 __all__ = [
@@ -8,6 +14,10 @@ __all__ = [
     "load_settings",
     "IgnoreProfiles",
     "load_ignore_profiles",
+    "SessionRegistry",
+    "SessionRecord",
+    "SessionError",
+    "load_sessions",
     "ClassificationProfile",
     "load_classification_profile",
 ]

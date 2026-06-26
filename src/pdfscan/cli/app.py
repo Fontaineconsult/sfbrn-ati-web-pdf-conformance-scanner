@@ -22,11 +22,12 @@ from pdfscan.cli.owner import owner_app
 from pdfscan.cli.people import people_app
 from pdfscan.cli.person import person_app, whois
 from pdfscan.cli.run import run
+from pdfscan.cli.session import session_app
 from pdfscan.cli.setup import doctor, setup_verapdf
 from pdfscan.cli.site import site_app
 from pdfscan.cli.status import check_404, rules, status
 from pdfscan.cli.verify import verify
-from pdfscan.config import load_settings
+from pdfscan.config import SessionError, load_settings
 
 app = typer.Typer(
     name="pdfscan",
@@ -36,6 +37,7 @@ app = typer.Typer(
 )
 
 app.add_typer(db_app, name="db")
+app.add_typer(session_app, name="session")
 app.add_typer(site_app, name="site")
 app.add_typer(owner_app, name="owner")
 app.add_typer(person_app, name="person")
@@ -61,6 +63,12 @@ def main(
         None, "--config", help="Path to settings.yaml (default: ./config/settings.yaml)."
     ),
     db: Path | None = typer.Option(None, "--db", help="Override the SQLite database path."),
+    session: str | None = typer.Option(
+        None, "--session", help="Use a registered scan session (its workspace) for this run."
+    ),
+    session_root: Path | None = typer.Option(
+        None, "--session-root", help="Use an ad-hoc workspace root for this run (no registration)."
+    ),
     output_root: Path | None = typer.Option(
         None, "--output-root", help="Relocate ALL outputs (db/exports/remediation/scratch) here."
     ),
@@ -87,7 +95,15 @@ def main(
         overrides["storage"] = {"root": str(storage_root)}
     if verbose:
         overrides["logging"] = {"level": "DEBUG"}
-    ctx.obj = load_settings(config_path=config, overrides=overrides)
+    try:
+        ctx.obj = load_settings(
+            config_path=config,
+            overrides=overrides,
+            session=session,
+            session_root=str(session_root) if session_root else None,
+        )
+    except SessionError as exc:
+        raise typer.BadParameter(str(exc)) from exc
 
 
 @app.command()
@@ -95,6 +111,8 @@ def paths(ctx: typer.Context) -> None:
     """Show where each output (database, exports, remediation, scratch) will be written."""
     settings = ctx.obj
     resolved = settings.output_paths()
+    if resolved.get("session"):
+        typer.echo(f"session     : {resolved['session']}")
     root = resolved["output_root"]
     typer.echo(f"output_root : {root or '(project root: ' + str(settings.base_dir) + ')'}")
     for key in ("database", "exports", "remediation", "scratch", "verapdf"):

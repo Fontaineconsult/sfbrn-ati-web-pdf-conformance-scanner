@@ -23,6 +23,8 @@ from typing import Any
 import yaml
 from dotenv import load_dotenv
 
+from pdfscan.config.sessions import resolve_session_root
+
 DEFAULTS: dict[str, Any] = {
     "database": {"path": "./data/pdfscan.db", "wal": True, "busy_timeout_ms": 30000},
     "paths": {
@@ -122,6 +124,7 @@ class Settings:
     raw: dict[str, Any]
     base_dir: Path = field(default_factory=Path.cwd)
     config_path: Path | None = None
+    session_name: str | None = None  # selected scan session (display only)
 
     def get(self, dotted: str, default: Any = None) -> Any:
         cur: Any = self.raw
@@ -180,10 +183,11 @@ class Settings:
         env = os.environ.get("PDFSCAN_STORAGE_ROOT")
         return self.resolve_output(env or self.get("storage.root", "./remediation"))
 
-    def output_paths(self) -> dict[str, str]:
+    def output_paths(self) -> dict[str, str | None]:
         """Resolved output locations (for display / ``pdfscan paths``)."""
         root = self.output_root
         return {
+            "session": self.session_name,
             "output_root": str(root) if root else None,
             "database": str(self.db_path),
             "exports": str(self.export_dir),
@@ -202,8 +206,18 @@ class Settings:
 def load_settings(
     config_path: str | os.PathLike | None = None,
     overrides: dict[str, Any] | None = None,
+    *,
+    session: str | None = None,
+    session_root: str | os.PathLike | None = None,
 ) -> Settings:
-    """Load layered settings. ``overrides`` (e.g. from CLI flags) win over everything."""
+    """Load layered settings. ``overrides`` (e.g. from CLI flags) win over everything.
+
+    A *scan session* may supply ``paths.output_root`` (relocating all outputs under
+    a named workspace). It is applied only when no explicit ``output_root`` is given
+    via yaml / ``--output-root`` / ``PDFSCAN_OUTPUT_ROOT``, so those always win.
+    Selection precedence: ``session``/``session_root`` args > ``PDFSCAN_SESSION``/
+    ``PDFSCAN_SESSION_ROOT`` env > the registry's active session > none.
+    """
     load_dotenv()
     path = resolve_config_path(config_path)
     raw = deepcopy(DEFAULTS)
@@ -212,4 +226,15 @@ def load_settings(
         raw = _deep_merge(raw, loaded)
     if overrides:
         raw = _deep_merge(raw, overrides)
-    return Settings(raw=raw, base_dir=_base_dir_for(path), config_path=path)
+
+    session_name: str | None = None
+    explicit_root = os.environ.get("PDFSCAN_OUTPUT_ROOT") or raw.get("paths", {}).get("output_root")
+    if not explicit_root:
+        resolved_name, resolved_root = resolve_session_root(name=session, root=session_root)
+        if resolved_root is not None:
+            raw.setdefault("paths", {})["output_root"] = str(resolved_root)
+            session_name = resolved_name
+
+    return Settings(
+        raw=raw, base_dir=_base_dir_for(path), config_path=path, session_name=session_name
+    )

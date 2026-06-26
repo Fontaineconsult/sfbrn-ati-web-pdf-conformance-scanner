@@ -39,6 +39,40 @@ pdfscan verify hr          # download + veraPDF + analyze, save copies for remed
 pdfscan export excel hr --out hr.xlsx
 ```
 
+## Scan sessions (relocatable workspaces)
+
+By default all outputs (database, saved PDF copies, exports, scratch) live in the
+project folder. A **session** relocates them — together — under a named folder
+**anywhere on disk**, so each audit is a self-contained, isolated workspace (its
+own database) and nothing pollutes the repo.
+
+```powershell
+# Register an external workspace and make it active (creates + migrates its DB)
+pdfscan session add audit --root D:/pdfscan-data/audit --use --init
+
+# Everything now reads & writes only under D:/pdfscan-data/audit
+pdfscan crawl hr
+pdfscan verify hr
+pdfscan export excel hr --out hr.xlsx     # -> D:/pdfscan-data/audit/...
+
+pdfscan session list        # all sessions; the active one marked with *
+pdfscan session current     # active session (or "project-local")
+pdfscan session show audit  # metadata + resolved output paths
+pdfscan session use sfsu    # switch the active session
+pdfscan session path        # print the active root (scriptable)
+```
+
+**Selection precedence** (highest wins): `--session <name>` / `--session-root <path>`
+(this run) → `PDFSCAN_SESSION` / `PDFSCAN_SESSION_ROOT` (env) → the registry's
+active session → none (project-local, unchanged). An explicit `--output-root` /
+`PDFSCAN_OUTPUT_ROOT` always wins over a session.
+
+The session registry lives outside the repo — `%APPDATA%\pdfscan\sessions.yaml`
+on Windows, `${XDG_CONFIG_HOME:-~/.config}/pdfscan/sessions.yaml` elsewhere
+(override with `PDFSCAN_SESSIONS_FILE`). Because a session root is an absolute,
+environment-specific path, keep the registry per-environment (or point a logical
+session at the right local path with `PDFSCAN_SESSION_ROOT`).
+
 ## Claude Desktop (MCP) & Skill
 
 The same operations are exposed to Claude.

@@ -22,6 +22,18 @@ paths:
 #   database.path (above)  -> PDFSCAN_DB_PATH
 # Each accepts an absolute path to live anywhere, independent of output_root.
 
+# Scan sessions: instead of juggling output_root by hand, register named,
+# isolated workspaces and switch between them (each has its own database):
+#   pdfscan session add audit --root D:/pdfscan-data/audit --use --init
+#   pdfscan crawl/verify/export ...   # write only under the active session
+#   pdfscan session list | current | use <name> | path | show <name>
+# Select per run with --session <name> / --session-root <path>, or the env vars
+# PDFSCAN_SESSION / PDFSCAN_SESSION_ROOT. A session only supplies output_root when
+# none is set explicitly (--output-root / PDFSCAN_OUTPUT_ROOT always win). The
+# registry lives outside the repo (%APPDATA%\pdfscan\sessions.yaml on Windows,
+# ${XDG_CONFIG_HOME:-~/.config}/pdfscan/sessions.yaml elsewhere; override with
+# PDFSCAN_SESSIONS_FILE).
+
 # Default crawl behavior (overridable per-site and per-run)
 crawl:
   default_scope: host           # host | subdomain | domain | path
