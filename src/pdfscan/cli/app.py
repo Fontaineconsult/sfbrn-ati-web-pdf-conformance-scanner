@@ -18,6 +18,7 @@ from pdfscan.cli.crawl import crawl
 from pdfscan.cli.db import db_app
 from pdfscan.cli.evaluate import evaluate
 from pdfscan.cli.export import export_app
+from pdfscan.cli.init import init
 from pdfscan.cli.owner import owner_app
 from pdfscan.cli.people import people_app
 from pdfscan.cli.person import person_app, whois
@@ -44,6 +45,7 @@ app.add_typer(person_app, name="person")
 app.add_typer(people_app, name="people")
 app.add_typer(export_app, name="export")
 app.add_typer(archive_app, name="archive")
+app.command("init")(init)
 app.command("crawl")(crawl)
 app.command("verify")(verify)
 app.command("run")(run)

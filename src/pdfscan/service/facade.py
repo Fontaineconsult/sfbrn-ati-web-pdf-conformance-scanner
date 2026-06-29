@@ -481,6 +481,52 @@ class ScannerService:
         """Resolved output locations (database, exports, remediation, scratch, verapdf)."""
         return self.settings.output_paths()
 
+    # -- easy mode --------------------------------------------------------------
+    def quickstart(
+        self,
+        name: str,
+        root: str | Path,
+        *,
+        label: str | None = None,
+        sites: list[dict] | None = None,
+        activate: bool = True,
+        migrate: bool = True,
+    ) -> dict[str, Any]:
+        """Stand up a ready-to-use scan workspace in one call (the core of `init`).
+
+        Registers (and by default activates) a named session at ``root``, creates
+        the folder, migrates the session's database, and optionally adds ``sites``
+        (each a dict with ``name`` + ``seeds`` and any extra ``add_site`` kwargs).
+        This service's settings are re-pointed at the new workspace, so subsequent
+        calls (e.g. :meth:`add_site`) target it. Returns a JSON-friendly summary.
+        """
+        from pdfscan.config import load_sessions
+        from pdfscan.db import migrate as run_migrate
+
+        registry = load_sessions()
+        record = registry.add(name, root, label=label, activate=activate)
+        registry.save()
+        record.root.mkdir(parents=True, exist_ok=True)
+        # Re-point this service at the session's workspace for the rest of the call.
+        self.settings = load_settings(config_path=self.settings.config_path, session=record.name)
+        version: int | None = None
+        if migrate:
+            with session(self.settings.db_path) as conn:
+                version = run_migrate(conn)
+        added: list[str] = []
+        for spec in sites or []:
+            extra = {k: v for k, v in spec.items() if k not in {"name", "seeds"}}
+            self.add_site(spec["name"], spec["seeds"], **extra)
+            added.append(spec["name"])
+        return {
+            "session": record.name,
+            "root": str(record.root),
+            "active": registry.active == record.name,
+            "schema_version": version,
+            "sites_added": added,
+            "paths": self.settings.output_paths(),
+        }
+
     # -- orchestration ----------------------------------------------------------
     def run(
         self,
