@@ -101,6 +101,67 @@ def test_cli_init_bad_site_spec_is_rejected(tmp_path, monkeypatch):
     assert "NAME=URL" in result.output
 
 
+def _mock_doctor(monkeypatch, *, java, verapdf):
+    monkeypatch.setattr(
+        ScannerService,
+        "doctor",
+        lambda self: {
+            "java": {"ok": java, "version": "1.8.0" if java else None},
+            "verapdf": {"ok": verapdf, "version": "1.30.2" if verapdf else None},
+            "playwright_chromium": True,
+        },
+    )
+
+
+def test_cli_init_installs_verapdf_when_missing_and_yes(tmp_path, monkeypatch):
+    monkeypatch.setenv("PDFSCAN_SESSIONS_FILE", str(tmp_path / "s.yaml"))
+    _mock_doctor(monkeypatch, java=True, verapdf=False)
+    installed = {}
+    monkeypatch.setattr(
+        ScannerService,
+        "setup_verapdf",
+        lambda self, force=False: installed.setdefault("path", str(tmp_path / "verapdf.bat")),
+    )
+    result = CliRunner().invoke(
+        app, ["init", "x", "--root", str(tmp_path / "ws"), "--site", "a=https://a.example", "--yes"]
+    )
+    assert result.exit_code == 0, result.output
+    assert installed.get("path")  # install was attempted
+    assert "veraPDF installed" in result.output
+
+
+def test_cli_init_no_install_when_java_missing(tmp_path, monkeypatch):
+    monkeypatch.setenv("PDFSCAN_SESSIONS_FILE", str(tmp_path / "s.yaml"))
+    _mock_doctor(monkeypatch, java=False, verapdf=False)
+
+    def fake_setup(self, force=False):
+        raise AssertionError("veraPDF must not install without Java")
+
+    monkeypatch.setattr(ScannerService, "setup_verapdf", fake_setup)
+    result = CliRunner().invoke(
+        app, ["init", "x", "--root", str(tmp_path / "ws"), "--site", "a=https://a.example", "--yes"]
+    )
+    assert result.exit_code == 0, result.output
+    assert "Java: not found" in result.output
+    assert "setup-verapdf" in result.output
+
+
+def test_cli_init_noninteractive_skips_install_prompt(tmp_path, monkeypatch):
+    monkeypatch.setenv("PDFSCAN_SESSIONS_FILE", str(tmp_path / "s.yaml"))
+    _mock_doctor(monkeypatch, java=True, verapdf=False)
+
+    def fake_setup(self, force=False):
+        raise AssertionError("must not install non-interactively without --yes")
+
+    monkeypatch.setattr(ScannerService, "setup_verapdf", fake_setup)
+    # No --yes and a non-interactive stdin -> no prompt, no install, no hang.
+    result = CliRunner().invoke(
+        app, ["init", "x", "--root", str(tmp_path / "ws"), "--site", "a=https://a.example"]
+    )
+    assert result.exit_code == 0, result.output
+    assert "Install later" in result.output
+
+
 def test_cli_init_reuses_existing_session(tmp_path, monkeypatch):
     monkeypatch.setenv("PDFSCAN_SESSIONS_FILE", str(tmp_path / "s.yaml"))
     runner = CliRunner()

@@ -1,14 +1,17 @@
 """`pdfscan init` -- easy-mode setup.
 
 Guides a first-time scan into existence: pick a session name, choose a workspace
-folder (all outputs go there), the database is created/migrated, then it waits
-for you to add the sites to scan. Equivalent to, but friendlier than, running
-``session add --use`` + ``db init`` + repeated ``site add`` by hand.
+folder (all outputs go there), the database is created/migrated, the PDF-verify
+tools (Java + veraPDF) are checked -- offering to install veraPDF when it's
+missing -- then it waits for you to add the sites to scan. Equivalent to, but
+friendlier than, running ``session add --use`` + ``db init`` + ``setup-verapdf``
++ repeated ``site add`` by hand.
 """
 
 from __future__ import annotations
 
 import re
+import sys
 from pathlib import Path
 
 import typer
@@ -63,6 +66,48 @@ def _add_sites_interactively(svc: ScannerService) -> int:
         except ScannerError as exc:
             typer.echo(f"    ! {exc}")
     return count
+
+
+def _check_tooling(svc: ScannerService, *, assume_yes: bool) -> None:
+    """Verify the PDF-verification dependencies (Java + veraPDF) and offer to
+    install veraPDF when it is missing (and Java is present, which veraPDF's own
+    installer needs). Crawling needs neither tool, so a missing one is a warning,
+    never fatal. The install prompt is skipped in non-interactive runs unless
+    ``assume_yes`` is set, so this never blocks a script."""
+    doc = svc.doctor()
+    java_ok = doc["java"]["ok"]
+    vera_ok = doc["verapdf"]["ok"]
+
+    typer.echo("\nChecking PDF-verification tools:")
+    typer.echo(
+        f"  [OK] Java: {doc['java']['version'] or 'available'}"
+        if java_ok
+        else "  [X]  Java: not found (a Java 8+ runtime is required)"
+    )
+    if vera_ok:
+        typer.echo(f"  [OK] veraPDF: {doc['verapdf']['version'] or 'available'}")
+        return
+
+    typer.echo("  [X]  veraPDF: not installed")
+    if not java_ok:
+        typer.echo("       veraPDF needs Java to install and run. Install a JRE, then run:")
+        typer.echo("         pdfscan setup-verapdf")
+        return
+
+    want_install = assume_yes or (
+        sys.stdin.isatty() and typer.confirm("  Download and install veraPDF now?", default=True)
+    )
+    if not want_install:
+        typer.echo("       Install later (needed for verify/report): pdfscan setup-verapdf")
+        return
+
+    typer.echo("  Installing veraPDF (downloads tens of MB; this can take a minute)...")
+    try:
+        path = svc.setup_verapdf()
+        typer.echo(f"  [OK] veraPDF installed at {path}")
+    except RuntimeError as exc:
+        typer.echo(f"  [X]  veraPDF install failed: {exc}")
+        typer.echo("       Retry later with: pdfscan setup-verapdf")
 
 
 def _print_next_steps(svc: ScannerService) -> None:
@@ -132,14 +177,15 @@ def init(
     typer.echo(f"  exports  : {summary['paths']['exports']}")
     typer.echo(f"  remediation : {summary['paths']['remediation']}")
 
-    if not svc.doctor()["verapdf"]["ok"]:
-        typer.echo("  note: veraPDF not detected -- run `pdfscan setup-verapdf` before verifying.")
+    _check_tooling(svc, assume_yes=yes)
 
     if parsed:
         for name_added in summary["sites_added"]:
             typer.echo(f"  + site '{name_added}'")
     else:
-        if _add_sites_interactively(svc) == 0:
+        # Only nag about "no sites" when the session truly has none -- re-running
+        # init on a populated session and adding nothing new is fine.
+        if _add_sites_interactively(svc) == 0 and not svc.list_sites():
             typer.echo("  (no sites yet -- add later with: pdfscan site add <name> --seed <url>)")
 
     _print_next_steps(svc)
